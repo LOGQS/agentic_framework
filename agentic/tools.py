@@ -142,7 +142,6 @@ class Tool:
         return self._callable(inputs)
 
     def _run_in_thread(self, inputs: dict[str, Any]) -> dict | str | bytes:
-        """Execute in separate thread with timeout."""
         with ThreadPoolExecutor(max_workers=1) as executor:
             future = executor.submit(self._callable, inputs)
             try:
@@ -152,7 +151,6 @@ class Tool:
                 raise e
 
     def _run_in_process(self, inputs: dict[str, Any]) -> dict | str | bytes:
-        """Execute in separate process with timeout."""
         with ProcessPoolExecutor(max_workers=1) as executor:
             future = executor.submit(self._callable, inputs)
             try:
@@ -162,7 +160,6 @@ class Tool:
                 raise e
 
     def _run_async(self, inputs: dict[str, Any]) -> dict | str | bytes:
-        """Execute asynchronously with timeout."""
         try:
             loop = asyncio.get_running_loop()
             raise RuntimeError(
@@ -181,7 +178,6 @@ class Tool:
                 raise
 
     async def _async_wrapper(self, inputs: dict[str, Any]) -> dict | str | bytes:
-        """Wrapper to call sync function in async context."""
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self._callable, inputs)
 
@@ -193,19 +189,15 @@ class ToolRegistry:
         self._tools: dict[str, Tool] = {}
 
     def register(self, tool: Tool) -> None:
-        """Register tool."""
         self._tools[tool.name] = tool
 
     def get(self, name: str) -> Tool | None:
-        """Get tool by name."""
         return self._tools.get(name)
 
     def exists(self, name: str) -> bool:
-        """Check if tool exists."""
         return name in self._tools
 
     def list(self) -> list[str]:
-        """List all tool names."""
         return sorted(self._tools.keys())
 
     def get_definitions(self) -> dict[str, ToolDefinition]:
@@ -213,7 +205,6 @@ class ToolRegistry:
         return {name: tool.definition for name, tool in self._tools.items()}
 
     def unregister(self, name: str) -> bool:
-        """Remove tool. Returns True if found and removed."""
         if name in self._tools:
             del self._tools[name]
             return True
@@ -229,7 +220,6 @@ def create_tool(
     processing_mode: ProcessingMode = ProcessingMode.THREAD,
     description: str = ""
 ) -> Tool:
-    """Create Tool from callable."""
     definition = ToolDefinition(
         name=name,
         input_schema=input_schema or {},

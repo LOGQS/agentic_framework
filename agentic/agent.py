@@ -74,15 +74,12 @@ class Agent:
         self._provider = provider_client
 
     def get_id(self) -> str:
-        """Get agent ID."""
         return self._config.agent_id
 
     def get_config(self) -> AgentConfig:
-        """Get agent configuration."""
         return self._config
 
     def set_config(self, config: AgentConfig) -> None:
-        """Update agent configuration."""
         self._config = config
 
     @property
@@ -117,11 +114,9 @@ class AgentRunner:
         This is a convenience wrapper around step_stream() that aggregates
         all events and returns the final result.
         """
-        # Collect events from stream
         events = []
         final_result = None
 
-        # Run stream in event loop
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
@@ -159,27 +154,20 @@ class AgentRunner:
         config = self._agent.get_config()
         effective_mode = processing_mode if processing_mode is not None else config.processing_mode
 
-        # Get/increment iteration at step START for consistent indexing
         if config.auto_increment_iteration:
             current_iteration = self._agent.context.next_iteration()
         else:
             current_iteration = self._agent.context.get_iteration()
 
-        # Generate unique step ID for event correlation
         step_id = new_uuid()
-
-        # Build prompt
         prompt = self._build_prompt(user_input)
 
-        # Yield initial status
         yield StatusEvent(AgentStatus.OK, "Starting agent step", step_id=step_id)
 
-        # Initialize streaming pattern extractor
         pattern_set_name = config.pattern_set or "default"
         pattern_set = self._agent.patterns.get_pattern_set(pattern_set_name)
 
         if pattern_set is None:
-            # No pattern set - treat entire output as response
             pattern_extractor = None
         else:
             pattern_extractor = StreamingPatternExtractor(
@@ -187,17 +175,11 @@ class AgentRunner:
                 stream_content=config.stream_pattern_content
             )
 
-        # Stream LLM generation with incremental pattern detection
-        # Execute tools concurrently as they are detected
         raw_output_buffer = []
         detected_tools: list[ToolCall] = []
         tool_execution_tasks: list[asyncio.Task] = []
         tool_results: list[ToolResult] = []
-
-        # Per-pattern-type counters for DB indexing
         pattern_counters: dict[str, int] = {}
-
-        # Event queue for concurrent tool execution
         tool_event_queue: asyncio.Queue = asyncio.Queue()
 
         try:
@@ -209,7 +191,6 @@ class AgentRunner:
                 raw_output_buffer.append(token)
                 yield LLMTokenEvent(token, step_id=step_id)
 
-                # Drain concurrent tool event queue
                 while not tool_event_queue.empty():
                     try:
                         event = tool_event_queue.get_nowait()
@@ -217,13 +198,11 @@ class AgentRunner:
                     except asyncio.QueueEmpty:
                         break
 
-                # Incremental DB write for LLM output - EVERY token (no versioning during stream)
                 if config.incremental_context_writes:
                     partial_output = "".join(raw_output_buffer)
                     streaming_key = f"llm_streaming:{current_iteration}"
                     self._agent.context.update(streaming_key, partial_output.encode('utf-8'), iteration=current_iteration)
 
-                # Feed token to pattern extractor
                 if pattern_extractor:
                     for event_data in pattern_extractor.feed_token(token):
                         event_type = event_data[0]
@@ -232,7 +211,6 @@ class AgentRunner:
                             _, pattern_name, pattern_type = event_data
                             yield PatternStartEvent(pattern_name, pattern_type, step_id=step_id)
 
-                            # Emit WAITING_FOR_TOOL status when tool pattern starts
                             if pattern_type == "tool":
                                 yield StatusEvent(AgentStatus.WAITING_FOR_TOOL, f"Tool pattern detected: {pattern_name}", step_id=step_id)
 
@@ -240,7 +218,6 @@ class AgentRunner:
                             _, pattern_name, content = event_data
                             yield PatternContentEvent(pattern_name, content, is_partial=True, step_id=step_id)
 
-                            # Incremental DB write for partial pattern content (no versioning during stream)
                             if config.incremental_context_writes:
                                 partial_key = f"pattern_partial:{pattern_name}:{current_iteration}"
                                 existing = self._agent.context.get(partial_key)
@@ -254,26 +231,20 @@ class AgentRunner:
                             _, pattern_name, pattern_type, full_content, tool_call = event_data
                             yield PatternEndEvent(pattern_name, pattern_type, full_content, step_id=step_id)
 
-                            # Incremental DB write for detected pattern (versioned - completion)
-                            # Use per-type counter for consistent indexing
                             if pattern_type not in pattern_counters:
                                 pattern_counters[pattern_type] = 0
                             pattern_key = f"pattern:{pattern_type}:{current_iteration}:{pattern_counters[pattern_type]}"
                             self._agent.context.set(pattern_key, full_content.encode('utf-8'), iteration=current_iteration)
                             pattern_counters[pattern_type] += 1
 
-                            # Clean up partial pattern key if it exists
                             if config.incremental_context_writes:
                                 partial_key = f"pattern_partial:{pattern_name}:{current_iteration}"
                                 self._agent.context.delete(partial_key)
 
-                            # Handle tool execution if concurrent mode enabled
                             if tool_call:
                                 detected_tools.append(tool_call)
 
-                                # If concurrent execution enabled, execute tool immediately
                                 if config.concurrent_tool_execution:
-                                    # Check if tool should be executed via callback
                                     should_execute = True
 
                                     if config.on_tool_detected:
@@ -289,7 +260,6 @@ class AgentRunner:
                                             should_execute = False
 
                                     if should_execute:
-                                        # Spawn async task to execute tool concurrently with LLM streaming
                                         yield StatusEvent(AgentStatus.WAITING_FOR_TOOL, f"Starting concurrent execution of tool '{tool_call.name}'", step_id=step_id)
                                         task = asyncio.create_task(
                                             self._execute_single_tool_concurrent(
@@ -308,12 +278,10 @@ class AgentRunner:
             raw_output = "".join(raw_output_buffer)
             yield LLMCompleteEvent(raw_output, step_id=step_id)
 
-            # Wait for all concurrent tool executions to complete
             if tool_execution_tasks:
                 yield StatusEvent(AgentStatus.WAITING_FOR_TOOL, f"Waiting for {len(tool_execution_tasks)} concurrent tool(s) to complete", step_id=step_id)
                 await asyncio.gather(*tool_execution_tasks, return_exceptions=True)
 
-                # Drain remaining events from queue
                 while not tool_event_queue.empty():
                     try:
                         event = tool_event_queue.get_nowait()
@@ -322,7 +290,6 @@ class AgentRunner:
                         break
 
         except Exception as e:
-            # LLM error - cancel any running tool tasks
             for task in tool_execution_tasks:
                 if not task.done():
                     task.cancel()
@@ -339,11 +306,9 @@ class AgentRunner:
             ), step_id=step_id)
             return
 
-        # Finalize pattern extraction
         if pattern_extractor:
             segments, malformed_patterns = pattern_extractor.finalize(iteration=current_iteration)
 
-            # Emit error events for malformed patterns and REVERT partial keys
             if malformed_patterns:
                 for pattern_name, partial_content in malformed_patterns.items():
                     yield ErrorEvent(
@@ -354,19 +319,14 @@ class AgentRunner:
                         step_id=step_id
                     )
 
-                    # Revert partial pattern key (delete live updates for malformed pattern)
-                    # Malformed content stays accessible in-memory via partial_malformed_patterns
                     if config.incremental_context_writes:
                         partial_key = f"pattern_partial:{pattern_name}:{current_iteration}"
                         self._agent.context.delete(partial_key)
         else:
-            # No pattern extraction - entire output is response
             segments = ExtractedSegments(response=raw_output)
             malformed_patterns = None
 
-        # If not concurrent mode, execute tools sequentially now
         if not config.concurrent_tool_execution and detected_tools:
-            # Filter tools based on callback
             tools_to_execute = []
             for tool_call in detected_tools:
                 should_execute = True
@@ -392,7 +352,6 @@ class AgentRunner:
                         step_id=step_id
                     )
 
-            # Execute approved tools using existing streaming path
             if tools_to_execute:
                 yield StatusEvent(AgentStatus.WAITING_FOR_TOOL, f"Executing {len(tools_to_execute)} approved tool(s)", step_id=step_id)
 
@@ -401,13 +360,10 @@ class AgentRunner:
                     if isinstance(event, ToolEndEvent):
                         tool_results.append(event.result)
 
-        # Check tool execution results
         tool_execution_failed = any(not tr.success for tr in tool_results)
 
-        # Update context
         self._update_context_from_output(raw_output, segments, tool_results, current_iteration)
 
-        # Emit context write event if enabled
         if config.incremental_context_writes:
             for context_key, _ in config.output_mapping:
                 record = self._agent.context.get(context_key)
@@ -421,7 +377,6 @@ class AgentRunner:
                         step_id=step_id
                     )
 
-        # Determine final status and collect error details
         error_message = None
         error_type = None
 
@@ -443,20 +398,16 @@ class AgentRunner:
                     error_message = f"{error_message} (and {len(failed_tools) - 1} other tool(s) failed)"
             yield ErrorEvent(error_type, error_message, recoverable=False, step_id=step_id)
         elif detected_tools and tool_results:
-            # Tools were executed successfully
             status = AgentStatus.TOOL_EXECUTED
         elif detected_tools and not tool_results:
-            # Tools detected but none executed (all rejected by callback)
             status = AgentStatus.WAITING_FOR_TOOL
         elif not segments.response and not detected_tools:
             status = AgentStatus.DONE
         else:
             status = AgentStatus.OK
 
-        # Emit final status
         yield StatusEvent(status, "Agent step complete", step_id=step_id)
 
-        # Yield final result (iteration already set at step start)
         final_result = AgentStepResult(
             status=status,
             raw_output=raw_output,
@@ -472,10 +423,8 @@ class AgentRunner:
     def _step_impl(self, user_input: str | None = None, processing_mode: ProcessingMode | None = None) -> AgentStepResult:
         """Internal synchronous implementation of agent step."""
         config = self._agent.get_config()
-        # Fix: argument overrides config (consistent with step_stream)
         effective_mode = processing_mode if processing_mode is not None else config.processing_mode
 
-        # Get/increment iteration at step START for consistent indexing
         if config.auto_increment_iteration:
             current_iteration = self._agent.context.next_iteration()
         else:
@@ -532,14 +481,12 @@ class AgentRunner:
                 if len(failed_tools) > 1:
                     error_message = f"{error_message} (and {len(failed_tools) - 1} other tool(s) failed)"
         elif segments.tools and not tool_execution_failed:
-            # Tools executed successfully - use TOOL_EXECUTED status
             status = AgentStatus.TOOL_EXECUTED
         elif not segments.response and not segments.tools:
             status = AgentStatus.DONE
         else:
             status = AgentStatus.OK
 
-        # Return result (iteration already set at step start)
         return AgentStepResult(
             status=status,
             raw_output=raw_output,
@@ -611,14 +558,11 @@ class AgentRunner:
         effective_mode = processing_mode if processing_mode is not None else config.processing_mode
 
         for tool_index, tool_call in enumerate(tool_calls):
-            # Write tool state: started
             tool_state_key = f"tool_state:{tool_call.call_id}"
             self._agent.context.set(tool_state_key, b"started", iteration=iteration)
 
-            # Emit start event
             yield ToolStartEvent(tool_call.name, tool_call.arguments, iteration, tool_call.call_id, step_id=step_id)
 
-            # Check if tool is allowed
             if tool_call.name not in config.tools_allowed:
                 result = ToolResult(
                     name=tool_call.name,
@@ -634,7 +578,6 @@ class AgentRunner:
                 self._store_tool_result(tool_call.call_id, result, iteration)
                 continue
 
-            # Get tool from registry
             tool = self._agent.tools.get(tool_call.name)
             if tool is None:
                 result = ToolResult(
@@ -651,31 +594,23 @@ class AgentRunner:
                 self._store_tool_result(tool_call.call_id, result, iteration)
                 continue
 
-            # Execute tool with streaming support
             start_time = time.time()
             output_chunks = []
             tool_failed = False
             error_message = None
 
             try:
-                # Use tool.run_stream() which handles both streaming and non-streaming tools
                 async for output_event in tool.run_stream(tool_call.arguments, iteration, effective_mode):
-                    # Enrich output event with call_id and step_id
                     output_event.call_id = tool_call.call_id
                     output_event.step_id = step_id
-                    # Forward the output event
                     yield output_event
-
-                    # Collect output chunks
                     output_chunks.append(output_event.output)
 
                 execution_time = time.time() - start_time
 
-                # Build final result from collected chunks
                 if len(output_chunks) == 1:
                     final_output = output_chunks[0]
                 else:
-                    # Multiple chunks - combine them
                     if all(isinstance(chunk, str) for chunk in output_chunks):
                         final_output = "".join(output_chunks)
                     elif all(isinstance(chunk, dict) for chunk in output_chunks):
@@ -728,14 +663,11 @@ class AgentRunner:
         config = self._agent.get_config()
         effective_mode = processing_mode if processing_mode is not None else config.processing_mode
 
-        # Write tool state: started
         tool_state_key = f"tool_state:{tool_call.call_id}"
         self._agent.context.set(tool_state_key, b"started", iteration=iteration)
 
-        # Emit start event
         await event_queue.put(ToolStartEvent(tool_call.name, tool_call.arguments, iteration, tool_call.call_id, step_id=step_id))
 
-        # Check if tool allowed
         if tool_call.name not in config.tools_allowed:
             result = ToolResult(
                 name=tool_call.name,
@@ -749,14 +681,10 @@ class AgentRunner:
             await event_queue.put(ToolEndEvent(tool_call.name, result, tool_call.call_id, step_id=step_id))
             results_list.append(result)
 
-            # Write tool state: failed
             self._agent.context.set(tool_state_key, b"failed", iteration=iteration)
-
-            # Incremental DB write with call_id
             self._store_tool_result(tool_call.call_id, result, iteration)
             return
 
-        # Get tool from registry
         tool = self._agent.tools.get(tool_call.name)
         if tool is None:
             result = ToolResult(
@@ -771,20 +699,15 @@ class AgentRunner:
             await event_queue.put(ToolEndEvent(tool_call.name, result, tool_call.call_id, step_id=step_id))
             results_list.append(result)
 
-            # Write tool state: failed
             self._agent.context.set(tool_state_key, b"failed", iteration=iteration)
-
-            # Incremental DB write with call_id
             self._store_tool_result(tool_call.call_id, result, iteration)
             return
 
-        # Execute tool with streaming support
         start_time = time.time()
         output_chunks = []
 
         try:
             async for output_event in tool.run_stream(tool_call.arguments, iteration, effective_mode):
-                # Enrich output event with call_id and step_id before queuing
                 output_event.call_id = tool_call.call_id
                 output_event.step_id = step_id
                 await event_queue.put(output_event)
@@ -792,7 +715,6 @@ class AgentRunner:
 
             execution_time = time.time() - start_time
 
-            # Combine output chunks
             if len(output_chunks) == 1:
                 final_output = output_chunks[0]
             else:
@@ -814,10 +736,7 @@ class AgentRunner:
             await event_queue.put(ToolEndEvent(tool_call.name, result, tool_call.call_id, step_id=step_id))
             results_list.append(result)
 
-            # Write tool state: finished
             self._agent.context.set(tool_state_key, b"finished", iteration=iteration)
-
-            # Incremental DB write with call_id
             self._store_tool_result(tool_call.call_id, result, iteration)
 
         except Exception as e:
@@ -834,10 +753,7 @@ class AgentRunner:
             await event_queue.put(ToolEndEvent(tool_call.name, result, tool_call.call_id, step_id=step_id))
             results_list.append(result)
 
-            # Write tool state: failed
             self._agent.context.set(tool_state_key, b"failed", iteration=iteration)
-
-            # Incremental DB write with call_id
             self._store_tool_result(tool_call.call_id, result, iteration)
 
     def _execute_tools(self, tool_calls: list[ToolCall], iteration: int, processing_mode: ProcessingMode | None = None) -> list[ToolResult]:
@@ -847,7 +763,6 @@ class AgentRunner:
         effective_mode = processing_mode if processing_mode is not None else config.processing_mode
 
         for tool_index, tool_call in enumerate(tool_calls):
-            # Write tool state: started
             tool_state_key = f"tool_state:{tool_call.call_id}"
             self._agent.context.set(tool_state_key, b"started", iteration=iteration)
 
@@ -882,7 +797,6 @@ class AgentRunner:
 
             result = tool.run(tool_call.arguments, iteration, processing_mode=effective_mode)
             results.append(result)
-            # Write tool state based on success/failure
             if result.success:
                 self._agent.context.set(tool_state_key, b"finished", iteration=iteration)
             else:
@@ -892,7 +806,7 @@ class AgentRunner:
         return results
 
     def _store_tool_result(self, call_id: str, result: ToolResult, iteration: int) -> None:
-        """Store tool result in context with call_id-based key."""
+        """Store tool result in context."""
         result_key = f"tool:result:{iteration}:{call_id}"
         result_data = json.dumps({
             "tool_name": result.name,
@@ -949,20 +863,16 @@ class AgentRunner:
                     self._agent.context.set(context_key, tools_data.encode('utf-8'), iteration=iteration)
 
     def _step_in_thread(self, user_input: str | None, processing_mode: ProcessingMode | None = None) -> AgentStepResult:
-        """Execute agent step in a separate thread."""
         with ThreadPoolExecutor(max_workers=1) as executor:
             future = executor.submit(self._step_impl, user_input, processing_mode)
             return future.result()
 
     def _step_in_process(self, user_input: str | None, processing_mode: ProcessingMode | None = None) -> AgentStepResult:
-        """Execute agent step in a separate process."""
         with ProcessPoolExecutor(max_workers=1) as executor:
             future = executor.submit(self._step_impl, user_input, processing_mode)
             return future.result()
 
     def _step_async(self, user_input: str | None, processing_mode: ProcessingMode | None = None) -> AgentStepResult:
-        """Execute agent step asynchronously."""
-        # Check if we're already in an event loop
         try:
             loop = asyncio.get_running_loop()
             raise RuntimeError(
@@ -971,14 +881,11 @@ class AgentRunner:
             )
         except RuntimeError as e:
             if "no running event loop" in str(e) or "no current event loop" in str(e):
-                # Not in async context, create new loop
                 return asyncio.run(self._async_wrapper(user_input, processing_mode))
             else:
-                # Re-raise if it's our error message
                 raise
 
     async def _async_wrapper(self, user_input: str | None, processing_mode: ProcessingMode | None = None) -> AgentStepResult:
-        """Wrapper to call step_impl in async context."""
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self._step_impl, user_input, processing_mode)
 

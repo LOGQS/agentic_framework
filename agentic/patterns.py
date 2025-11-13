@@ -40,14 +40,12 @@ class PatternRegistry:
         self._cache: dict[str, PatternSet] = {}
 
     def register_pattern_set(self, pattern_set: PatternSet) -> None:
-        """Register and store pattern set."""
         key = f"pattern:{pattern_set.name}".encode('utf-8')
         value = self._serialize_pattern_set(pattern_set)
         self._storage.put(key, value)
         self._cache[pattern_set.name] = pattern_set
 
     def get_pattern_set(self, name: str) -> PatternSet | None:
-        """Get pattern set by name."""
         if name in self._cache:
             return self._cache[name]
 
@@ -62,7 +60,6 @@ class PatternRegistry:
         return pattern_set
 
     def list_pattern_sets(self) -> list[str]:
-        """List all pattern set names."""
         names = []
         for key, _ in self._storage.iterate(b"pattern:"):
             key_str = key.decode('utf-8')
@@ -71,14 +68,12 @@ class PatternRegistry:
         return sorted(names)
 
     def delete_pattern_set(self, name: str) -> None:
-        """Delete pattern set."""
         key = f"pattern:{name}".encode('utf-8')
         self._storage.delete(key)
         if name in self._cache:
             del self._cache[name]
 
     def _serialize_pattern_set(self, pattern_set: PatternSet) -> bytes:
-        """Serialize PatternSet to JSON bytes."""
         data = {
             "name": pattern_set.name,
             "default_response_behavior": pattern_set.default_response_behavior,
@@ -96,7 +91,6 @@ class PatternRegistry:
         return json.dumps(data).encode('utf-8')
 
     def _deserialize_pattern_set(self, data: bytes) -> PatternSet:
-        """Deserialize JSON bytes to PatternSet."""
         obj = json.loads(data.decode('utf-8'))
         patterns = [
             Pattern(
@@ -352,32 +346,23 @@ class StreamingPatternExtractor:
         """
         self._buffer += token
 
-        # Scan for complete patterns using pre-compiled regex
         for pattern in self._pattern_set.patterns:
             compiled_regex = self._compiled_regexes[pattern.name]
 
-            # Find all complete pattern matches in buffer
-            # Performance: regex engines are efficient at skipping non-matches
-            # and we skip already-emitted patterns via the set check
             for match in compiled_regex.finditer(self._buffer):
                 match_key = (match.start(), match.end(), pattern.name)
 
-                # Skip if already emitted
                 if match_key in self._emitted_complete_patterns:
                     continue
 
-                # New complete pattern found
                 full_content = match.group(1).strip()
 
-                # Check if we already emitted start event for this pattern instance
                 active_key = (match.start(), pattern.name)
                 already_emitted_start = active_key in self._active_patterns
 
                 if not already_emitted_start:
-                    # Emit start event now (pattern just became complete)
                     yield ("pattern_start", pattern.name, pattern.segment_type.value)
 
-                # Parse tool call if this is a tool pattern
                 tool_call = None
                 if pattern.segment_type == SegmentType.TOOL:
                     tool_call = self._parse_tool_call_safe(full_content, 0)
@@ -391,18 +376,14 @@ class StreamingPatternExtractor:
                     else:
                         self._completed_segments.response += "\n" + full_content
 
-                # Emit end event
                 yield ("pattern_end", pattern.name, pattern.segment_type.value, full_content, tool_call)
 
-                # Mark as emitted
                 self._emitted_complete_patterns.add(match_key)
                 self._extracted_ranges.append((match.start(), match.end()))
 
-                # Remove from active if present
                 if active_key in self._active_patterns:
                     del self._active_patterns[active_key]
 
-        # Handle streaming content for incomplete patterns
         if self._stream_content:
             for event in self._stream_incomplete_patterns():
                 yield event
@@ -420,14 +401,12 @@ class StreamingPatternExtractor:
         Yields pattern_start and pattern_content events.
         """
         for pattern in self._pattern_set.patterns:
-            # Find all start tags in buffer
             search_pos = 0
             while True:
                 start_pos = self._buffer.find(pattern.start_tag, search_pos)
                 if start_pos == -1:
                     break
 
-                # Check if this start tag belongs to a completed pattern
                 is_completed = any(
                     start <= start_pos < end
                     for start, end, pname in self._emitted_complete_patterns
@@ -435,11 +414,9 @@ class StreamingPatternExtractor:
                 )
 
                 if not is_completed:
-                    # This is an incomplete/active pattern
                     active_key = (start_pos, pattern.name)
 
                     if active_key not in self._active_patterns:
-                        # New incomplete pattern detected
                         active = _ActivePattern(
                             pattern=pattern,
                             content_buffer="",
@@ -448,16 +425,13 @@ class StreamingPatternExtractor:
                         )
                         self._active_patterns[active_key] = active
 
-                        # Emit start event
                         yield ("pattern_start", pattern.name, pattern.segment_type.value)
                         active.has_emitted_start = True
 
-                    # Stream content after start tag
                     active = self._active_patterns[active_key]
                     content_start_pos = start_pos + len(pattern.start_tag)
                     current_content = self._buffer[content_start_pos:]
 
-                    # Only emit new content
                     if len(current_content) > len(active.content_buffer):
                         new_content = current_content[len(active.content_buffer):]
                         active.content_buffer = current_content
@@ -475,24 +449,19 @@ class StreamingPatternExtractor:
 
         Handles incomplete patterns by discarding them and storing as malformed.
         """
-        # Handle any active (incomplete) patterns as malformed
         for (start_pos, pattern_name), active in self._active_patterns.items():
-            # Store malformed content with unique key if multiple instances
             if pattern_name in self._malformed_patterns:
-                # Multiple incomplete instances - append position to make unique
                 key = f"{pattern_name}_{start_pos}"
             else:
                 key = pattern_name
             self._malformed_patterns[key] = active.content_buffer
 
-        # Extract remaining text as response (if configured)
         if self._pattern_set.default_response_behavior == "all_remaining":
             if self._completed_segments.response is None:
                 remaining = self._extract_remaining_from_buffer()
                 if remaining:
                     self._completed_segments.response = remaining
 
-        # Update iteration for all tool calls
         for tool_call in self._completed_segments.tools:
             tool_call.iteration = iteration
 

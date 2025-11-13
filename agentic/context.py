@@ -30,7 +30,6 @@ class IterationManager:
         self._key_global = b"iteration:global"
 
     def get(self) -> int:
-        """Get current iteration."""
         value = self._storage.get(self._key_global)
         if value is None:
             self._storage.put(self._key_global, b"0")
@@ -38,7 +37,6 @@ class IterationManager:
         return int(value.decode('utf-8'))
 
     def next(self) -> int:
-        """Increment and return next iteration."""
         current = self.get()
         new_value = current + 1
         self._storage.put(self._key_global, str(new_value).encode('utf-8'))
@@ -174,7 +172,6 @@ class ContextManager:
         self.set(key, TOMBSTONE, processing_mode=processing_mode)
 
     def list_keys(self, prefix: str | None = None) -> list[str]:
-        """List all unique context keys, optionally filtered by prefix."""
         search_prefix = b"context:"
         keys_set = set()
 
@@ -200,15 +197,12 @@ class ContextManager:
             self._storage.delete(key)
 
     def get_iteration(self) -> int:
-        """Get current iteration."""
         return self._iteration.get()
 
     def next_iteration(self) -> int:
-        """Increment and return next iteration."""
         return self._iteration.next()
 
     def get_history(self, key: str, max_versions: int | None = None) -> list[ContextRecord]:
-        """Get version history for key, newest first, optionally limited."""
         latest_key = f"context:{key}:latest".encode('utf-8')
         latest_value = self._storage.get(latest_key)
 
@@ -229,7 +223,6 @@ class ContextManager:
         return history
 
     def _serialize_record(self, record: ContextRecord) -> bytes:
-        """Serialize ContextRecord to bytes."""
         data = {
             "value": record.value.hex(),
             "iteration": record.iteration,
@@ -239,7 +232,6 @@ class ContextManager:
         return json.dumps(data).encode('utf-8')
 
     def _deserialize_record(self, data: bytes) -> ContextRecord:
-        """Deserialize bytes to ContextRecord."""
         obj = json.loads(data.decode('utf-8'))
         return ContextRecord(
             value=bytes.fromhex(obj["value"]),

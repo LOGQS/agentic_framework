@@ -94,10 +94,8 @@ class AgentConfig:
 
 
 def now_timestamp() -> float:
-    """Return current Unix timestamp."""
     return time.time()
 
 
 def new_uuid() -> str:
-    """Generate UUID string."""
     return str(uuid.uuid4())

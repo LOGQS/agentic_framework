@@ -57,25 +57,21 @@ class RocksDBStorage:
         self._initialized = True
 
     def get_db_path(self) -> Path:
-        """Return database path."""
         if not self._initialized or self._db_path is None:
             raise RuntimeError("Storage not initialized. Call initialize() first.")
         return self._db_path
 
     def get(self, key: bytes) -> bytes | None:
-        """Get value for key."""
         if not self._initialized or self._db is None:
             raise RuntimeError("Storage not initialized.")
         return self._db.get(key)
 
     def put(self, key: bytes, value: bytes) -> None:
-        """Store key-value pair."""
         if not self._initialized or self._db is None:
             raise RuntimeError("Storage not initialized.")
         self._db.put(key, value)
 
     def delete(self, key: bytes) -> None:
-        """Delete key."""
         if not self._initialized or self._db is None:
             raise RuntimeError("Storage not initialized.")
         self._db.delete(key)
@@ -99,14 +95,12 @@ class RocksDBStorage:
                     yield (key, value)
 
     def close(self) -> None:
-        """Close database connection."""
         if self._db is not None:
             self._db.close()
             self._db = None
         self._initialized = False
 
     def _resolve_context_path(self) -> Path:
-        """Resolve context directory with collision avoidance via UUID suffix."""
         base = Path(self._config.base_dir)
         candidate = base / self._config.db_name_prefix
 
@@ -120,7 +114,6 @@ class RocksDBStorage:
                 return candidate
 
     def _ensure_identification(self) -> None:
-        """Ensure database has valid identification."""
         id_key = b"metadata:id"
         existing_id = self._db.get(id_key)
 
@@ -136,7 +129,7 @@ class RocksDBStorage:
                 )
 
     def _generate_app_id(self) -> str:
-        """Generate app ID. Format: agentic_<hash>_<timestamp>_<uuid>"""
+        """Format: agentic_<hash>_<timestamp>_<uuid>"""
         if self._config.app_id:
             base = self._config.app_id
         else:

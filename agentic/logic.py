@@ -105,29 +105,22 @@ class LogicRunner:
         iteration_count = 0
         current_input = initial_input
         current_step_result = None
-
-        # Track partial state for early condition evaluation
         partial_raw_output = ""
 
         while True:
-            # Check max iterations
             if self._config.max_iterations is not None:
                 if iteration_count >= self._config.max_iterations:
                     yield StatusEvent(AgentStatus.DONE, f"Max iterations reached: {self._config.max_iterations}")
                     break
 
-            # Reset partial state for new step
             partial_raw_output = ""
 
-            # Execute agent step and forward all events
             async for event in self._agent_runner.step_stream(current_input, processing_mode):
                 yield event
 
-                # Build partial state from events
                 if isinstance(event, LLMTokenEvent):
                     partial_raw_output += event.token
 
-                # Check conditions at appropriate evaluation points
                 should_check = False
                 event_type = None
                 eval_context = None
@@ -140,21 +133,18 @@ class LogicRunner:
                 elif isinstance(event, LLMCompleteEvent):
                     event_type = "llm_complete"
                     should_check = self._has_conditions_for_event("llm_complete")
-                    # Build evaluation context from LLM output
                     eval_context = {"raw_output": event.full_text}
 
                 elif isinstance(event, PatternEndEvent):
                     if event.pattern_type == "tool":
                         event_type = "tool_detected"
                         should_check = self._has_conditions_for_event("tool_detected")
-                        # Build evaluation context from detected tool
                         eval_context = {
                             "tool_output": event.full_content,
                             "pattern_name": event.pattern_name,
                             "raw_output": partial_raw_output
                         }
                     else:
-                        # Handle non-tool patterns (reasoning, response)
                         event_type = "pattern_end"
                         should_check = self._has_conditions_for_event("pattern_end")
                         eval_context = {
@@ -167,7 +157,6 @@ class LogicRunner:
                 elif isinstance(event, ToolEndEvent):
                     event_type = "tool_finished"
                     should_check = self._has_conditions_for_event("tool_finished")
-                    # Build evaluation context from tool execution result
                     eval_context = {
                         "tool_name": event.tool_name,
                         "tool_result": event.result,
@@ -252,21 +241,17 @@ class LogicRunner:
                     results.append(current_step_result)
                     iteration_count += 1
 
-                    # Check for errors
                     if current_step_result.status == AgentStatus.ERROR and self._config.break_on_error:
                         yield StatusEvent(AgentStatus.ERROR, "Breaking on error")
                         return
 
-                # Check conditions if appropriate
                 if should_check:
                     if event_type == "step_complete" and current_step_result:
-                        # Use full AgentStepResult for step_complete
                         should_stop, loop_satisfied = self._check_conditions_for_event(
                             current_step_result,
                             event_type
                         )
                     elif eval_context:
-                        # Use partial evaluation context for early events
                         should_stop, loop_satisfied = self._check_conditions_on_partial_context(
                             eval_context,
                             event_type
@@ -282,20 +267,16 @@ class LogicRunner:
                         yield StatusEvent(AgentStatus.DONE, f"Loop-until condition satisfied at {event_type}")
                         return
 
-                # Handle step completion
                 if isinstance(event, StepCompleteEvent):
-                    # Prepare input for next iteration
                     if current_step_result.segments.response:
                         current_input = current_step_result.segments.response
                     else:
                         current_input = None
 
-                    # If agent is done and no more processing needed
                     if current_step_result.status == AgentStatus.DONE and not current_input:
                         yield StatusEvent(AgentStatus.DONE, "Agent completed with no further input")
                         return
 
-                    # Reset for next step
                     current_step_result = None
 
     def _run_impl(self, initial_input: str | None = None) -> list[AgentStepResult]:
@@ -316,30 +297,24 @@ class LogicRunner:
             if result.status == AgentStatus.ERROR and self._config.break_on_error:
                 break
 
-            # Check conditions at different evaluation points (simulating streaming behavior)
-            # Check in order: llm_complete, tool_detected, tool_finished, step_complete
             should_stop = False
             loop_satisfied = False
 
-            # llm_complete evaluation point
             if not should_stop and not loop_satisfied:
                 stop, satisfied = self._check_conditions_for_event(result, "llm_complete")
                 should_stop = should_stop or stop
                 loop_satisfied = loop_satisfied or satisfied
 
-            # tool_detected evaluation point (if tools were detected)
             if not should_stop and not loop_satisfied and result.segments.tools:
                 stop, satisfied = self._check_conditions_for_event(result, "tool_detected")
                 should_stop = should_stop or stop
                 loop_satisfied = loop_satisfied or satisfied
 
-            # tool_finished evaluation point (if tools were executed)
             if not should_stop and not loop_satisfied and result.tool_results:
                 stop, satisfied = self._check_conditions_for_event(result, "tool_finished")
                 should_stop = should_stop or stop
                 loop_satisfied = loop_satisfied or satisfied
 
-            # step_complete evaluation point (always check)
             if not should_stop and not loop_satisfied:
                 stop, satisfied = self._check_conditions_for_event(result, "step_complete")
                 should_stop = should_stop or stop
@@ -648,20 +623,16 @@ class LogicRunner:
         return False
 
     def _run_in_thread(self, initial_input: str | None) -> list[AgentStepResult]:
-        """Execute logic loop in a separate thread."""
         with ThreadPoolExecutor(max_workers=1) as executor:
             future = executor.submit(self._run_impl, initial_input)
             return future.result()
 
     def _run_in_process(self, initial_input: str | None) -> list[AgentStepResult]:
-        """Execute logic loop in a separate process."""
         with ProcessPoolExecutor(max_workers=1) as executor:
             future = executor.submit(self._run_impl, initial_input)
             return future.result()
 
     def _run_async(self, initial_input: str | None) -> list[AgentStepResult]:
-        """Execute logic loop asynchronously."""
-        # Check if we're already in an event loop
         try:
             loop = asyncio.get_running_loop()
             raise RuntimeError(
@@ -670,14 +641,11 @@ class LogicRunner:
             )
         except RuntimeError as e:
             if "no running event loop" in str(e) or "no current event loop" in str(e):
-                # Not in async context, create new loop
                 return asyncio.run(self._async_wrapper(initial_input))
             else:
-                # Re-raise if it's our error message
                 raise
 
     async def _async_wrapper(self, initial_input: str | None) -> list[AgentStepResult]:
-        """Wrapper to call run_impl in async context."""
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self._run_impl, initial_input)
 
