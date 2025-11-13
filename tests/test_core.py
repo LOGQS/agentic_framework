@@ -13,7 +13,6 @@ Covers:
 - now_timestamp() function
 - new_uuid() function
 """
-import pytest
 import time
 import uuid
 from dataclasses import fields
@@ -139,7 +138,7 @@ class TestToolCall:
     def test_tool_call_fields(self):
         """Validate that ToolCall has expected fields."""
         field_names = {f.name for f in fields(ToolCall)}
-        expected = {"name", "arguments", "raw_segment", "iteration"}
+        expected = {"name", "arguments", "raw_segment", "iteration", "call_id"}
         assert field_names == expected
 
 

@@ -12,7 +12,6 @@ Covers:
 - PatternStartEvent, PatternContentEvent, PatternEndEvent
 - StepCompleteEvent
 """
-import pytest
 import time
 
 from agentic.events import (

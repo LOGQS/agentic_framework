@@ -105,9 +105,7 @@ class Tool:
         Yields:
             ToolOutputEvent - Tool output events (partial or complete)
         """
-        # Check if callable has run_stream method for true streaming
         if hasattr(self._callable, 'run_stream') and callable(getattr(self._callable, 'run_stream')):
-            # Tool supports streaming - use it
             try:
                 async for output_chunk in self._callable.run_stream(inputs):
                     yield ToolOutputEvent(
@@ -116,22 +114,21 @@ class Tool:
                         is_partial=True
                     )
             except Exception as e:
-                # Stream failed - yield error as final output
                 yield ToolOutputEvent(
                     tool_name=self._definition.name,
                     output={"error": str(e)},
                     is_partial=False
                 )
         else:
-            # Tool doesn't support streaming - wrap run() and yield single event
-            # Execute run() in executor to avoid blocking
             loop = asyncio.get_event_loop()
             result = await loop.run_in_executor(
                 None,
                 lambda: self.run(inputs, iteration, processing_mode)
             )
 
-            # Yield single output event with complete result
+            if not result.success:
+                raise RuntimeError(result.error_message or "Tool execution failed")
+
             yield ToolOutputEvent(
                 tool_name=self._definition.name,
                 output=result.output,

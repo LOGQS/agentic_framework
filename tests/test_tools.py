@@ -12,15 +12,18 @@ Covers:
 """
 import pytest
 import time
-import asyncio
 
 from agentic.tools import (
     Tool,
     ToolDefinition,
-    ToolRegistry,
     create_tool
 )
-from agentic.core import ProcessingMode, ToolResult
+from agentic.core import ProcessingMode
+
+
+def _picklable_process_func(inputs):
+    """Picklable function for testing PROCESS mode."""
+    return {"result": "process_result", "input_count": len(inputs)}
 
 
 class TestToolDefinition:
@@ -129,12 +132,14 @@ class TestToolProcessingModes:
     def test_tool_process_mode(self):
         """Test tool execution in PROCESS mode.
 
-        Note: Due to pickling requirements for multiprocessing, we skip this test
-        or use a global/module-level function instead of a lambda.
+        Uses module-level function to satisfy pickling requirements for multiprocessing.
         """
-        # Skip this test as local functions cannot be pickled for ProcessPoolExecutor
-        # This is a known limitation of multiprocessing in Python
-        pytest.skip("Local functions cannot be pickled for PROCESS mode. Use THREAD or ASYNC for testing.")
+        tool = create_tool("process_tool", _picklable_process_func, processing_mode=ProcessingMode.PROCESS)
+        result = tool.run({"key": "value"}, iteration=1, processing_mode=ProcessingMode.PROCESS)
+
+        assert result.success is True
+        assert result.output == {"result": "process_result", "input_count": 1}
+        assert result.execution_time > 0
 
     def test_tool_async_mode(self):
         """Test tool execution in ASYNC mode."""

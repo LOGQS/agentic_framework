@@ -10,12 +10,10 @@ Covers:
 - Clear operations
 - Error handling
 """
-import pytest
 import json
 import time
 
-from agentic.context import ContextManager, IterationManager, ContextRecord, TOMBSTONE
-from agentic.storage import RocksDBStorage
+from agentic.context import IterationManager, ContextRecord, TOMBSTONE
 
 
 class TestIterationManager:
@@ -520,29 +518,3 @@ class TestContextEdgeCases:
             assert record.value == f"value{i}".encode('utf-8')
 
 
-class TestContextProcessingMode:
-    """Tests for processing_mode parameter (reserved for future use)."""
-
-    def test_set_with_processing_mode(self, context_manager):
-        """Test that processing_mode parameter is accepted."""
-        from agentic.core import ProcessingMode
-
-        # Should not raise, even though mode is not used yet
-        record = context_manager.set("key", b"value", processing_mode=ProcessingMode.ASYNC)
-        assert record.value == b"value"
-
-    def test_get_with_processing_mode(self, context_manager):
-        """Test that get accepts processing_mode parameter."""
-        from agentic.core import ProcessingMode
-
-        context_manager.set("key", b"value")
-        record = context_manager.get("key", processing_mode=ProcessingMode.THREAD)
-        assert record.value == b"value"
-
-    def test_delete_with_processing_mode(self, context_manager):
-        """Test that delete accepts processing_mode parameter."""
-        from agentic.core import ProcessingMode
-
-        context_manager.set("key", b"value")
-        context_manager.delete("key", processing_mode=ProcessingMode.PROCESS)
-        assert context_manager.get("key") is None

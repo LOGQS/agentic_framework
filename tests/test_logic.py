@@ -11,7 +11,6 @@ Covers:
 - Helper functions (loop_n_times, loop_until_pattern, etc.)
 """
 import pytest
-import asyncio
 
 from agentic.logic import (
     LogicRunner,
@@ -22,7 +21,6 @@ from agentic.logic import (
     loop_until_regex,
     stop_on_error
 )
-from agentic.agent import AgentRunner, MockLLMProvider
 from agentic.core import AgentStatus, ProcessingMode
 from agentic.events import StepCompleteEvent
 

@@ -13,11 +13,9 @@ Covers:
 """
 import pytest
 from pathlib import Path
-import hashlib
 import time
 
 from agentic.storage import RocksDBStorage, StorageConfig
-from agentic.core import new_uuid
 
 
 class TestStorageConfig:

@@ -262,6 +262,8 @@ class TestAgentErrorHandling:
                 raise RuntimeError("LLM failed")
 
             async def stream(self, prompt, max_tokens, temperature, **kwargs):
+                if False:
+                    yield  
                 raise RuntimeError("LLM failed")
 
         error_provider = ErrorProvider()

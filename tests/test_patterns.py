@@ -10,19 +10,16 @@ Covers:
 - Malformed pattern detection
 - Greedy vs non-greedy matching
 """
-import pytest
-import json
 
 from agentic.patterns import (
     Pattern,
     PatternSet,
-    PatternRegistry,
     PatternExtractor,
     StreamingPatternExtractor,
     create_default_pattern_set,
     MAX_JSON_SIZE
 )
-from agentic.core import SegmentType, ToolCall
+from agentic.core import SegmentType
 
 
 class TestPattern:
