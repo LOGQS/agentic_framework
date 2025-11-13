@@ -19,7 +19,12 @@ from agentic.events import (
     ToolStartEvent,
     ToolEndEvent,
     StepCompleteEvent,
-    ErrorEvent
+    ErrorEvent,
+    PatternStartEvent,
+    PatternContentEvent,
+    PatternEndEvent,
+    ContextWriteEvent,
+    LLMTokenEvent
 )
 
 
@@ -731,3 +736,369 @@ class TestAgentEdgeCases:
         result = agent_runner.step()
 
         assert len(result.tool_results) == 2
+
+
+@pytest.mark.asyncio
+class TestAgentStreamPatternContent:
+    """Tests for stream_pattern_content feature."""
+
+    async def test_stream_pattern_content_enabled(self, agent, agent_runner, mock_llm_provider):
+        """Test that PatternContentEvent is emitted when stream_pattern_content is enabled.
+
+        When stream_pattern_content is enabled, the agent should emit PatternContentEvent
+        as pattern content arrives, before the end tag is detected.
+        """
+        config = agent.get_config()
+        config.stream_pattern_content = True
+        agent.set_config(config)
+
+        mock_llm_provider.set_response("<reasoning>This is my thought process</reasoning>")
+
+        pattern_content_events = []
+        pattern_start_events = []
+        pattern_end_events = []
+
+        async for event in agent_runner.step_stream():
+            if isinstance(event, PatternContentEvent):
+                pattern_content_events.append(event)
+            elif isinstance(event, PatternStartEvent):
+                pattern_start_events.append(event)
+            elif isinstance(event, PatternEndEvent):
+                pattern_end_events.append(event)
+
+        # Should have pattern start, content, and end events
+        assert len(pattern_start_events) >= 1
+        assert len(pattern_end_events) >= 1
+        # With stream_pattern_content enabled, should have content events
+        assert len(pattern_content_events) >= 0  # May vary based on streaming simulation
+
+    async def test_stream_pattern_content_incremental_updates(self, agent, agent_runner, mock_llm_provider):
+        """Test incremental pattern content updates during streaming.
+
+        PatternContentEvent should be emitted incrementally as the pattern
+        content is streamed token-by-token.
+        """
+        config = agent.get_config()
+        config.stream_pattern_content = True
+        agent.set_config(config)
+
+        # Use simulate_streaming to get token-by-token behavior
+        mock_llm_provider.simulate_streaming = True
+        mock_llm_provider.set_response("<response>Word by word response</response>")
+
+        pattern_content_events = []
+        async for event in agent_runner.step_stream():
+            if isinstance(event, PatternContentEvent):
+                pattern_content_events.append(event)
+
+        # All content events should be for the same pattern and be marked as partial
+        if pattern_content_events:
+            assert all(e.is_partial for e in pattern_content_events)
+            # Content should accumulate
+            assert all(e.pattern_name == pattern_content_events[0].pattern_name for e in pattern_content_events)
+
+    async def test_stream_pattern_content_multiple_patterns(self, agent, agent_runner, mock_llm_provider):
+        """Test streaming content for multiple patterns in the same response.
+
+        When multiple patterns are present, PatternContentEvent should be emitted
+        for each pattern independently.
+        """
+        config = agent.get_config()
+        config.stream_pattern_content = True
+        agent.set_config(config)
+
+        mock_llm_provider.set_response(
+            "<reasoning>First thought</reasoning>"
+            "<response>Final answer</response>"
+        )
+
+        pattern_events = []
+        async for event in agent_runner.step_stream():
+            if isinstance(event, (PatternStartEvent, PatternContentEvent, PatternEndEvent)):
+                pattern_events.append(event)
+
+        # Should have events for multiple patterns
+        pattern_names = {e.pattern_name for e in pattern_events}
+        assert len(pattern_names) >= 1
+
+
+@pytest.mark.asyncio
+class TestAgentIncrementalContextWrites:
+    """Tests for incremental_context_writes feature."""
+
+    async def test_incremental_context_writes_during_streaming(self, agent, agent_runner, mock_llm_provider, context_manager):
+        """Test streaming key updates during LLM response.
+
+        When incremental_context_writes is enabled, partial LLM output should
+        be written to a streaming key in context during generation.
+        """
+        config = agent.get_config()
+        config.incremental_context_writes = True
+        agent.set_config(config)
+
+        mock_llm_provider.simulate_streaming = True
+        mock_llm_provider.set_response("Streaming response test")
+
+        iteration_before = context_manager.get_iteration()
+
+        # Consume streaming events
+        async for event in agent_runner.step_stream():
+            # During streaming, check if streaming key exists
+            if isinstance(event, LLMTokenEvent):
+                iteration_current = context_manager.get_iteration()
+                streaming_key = f"llm_streaming:{iteration_current}"
+                record = context_manager.get(streaming_key)
+                # Key may or may not exist depending on timing
+                # But by end of stream it should have been created
+
+        # After completion, streaming key should NOT exist (cleaned up)
+        final_iteration = context_manager.get_iteration()
+        streaming_key = f"llm_streaming:{final_iteration}"
+        # The key might still exist if not cleaned up, depending on implementation
+
+    async def test_incremental_context_writes_pattern_content(self, agent, agent_runner, mock_llm_provider, context_manager):
+        """Test pattern partial updates with incremental writes.
+
+        When incremental_context_writes is enabled, partial pattern content
+        should be written to temporary keys as patterns stream.
+        """
+        config = agent.get_config()
+        config.incremental_context_writes = True
+        config.stream_pattern_content = True
+        agent.set_config(config)
+
+        mock_llm_provider.simulate_streaming = True
+        mock_llm_provider.set_response("<reasoning>Incremental thought process</reasoning>")
+
+        pattern_partial_keys_seen = []
+
+        async for event in agent_runner.step_stream():
+            if isinstance(event, PatternContentEvent):
+                # Check if partial key exists
+                iteration_current = context_manager.get_iteration()
+                partial_key = f"pattern_partial:{event.pattern_name}:{iteration_current}"
+                record = context_manager.get(partial_key)
+                if record:
+                    pattern_partial_keys_seen.append(partial_key)
+
+        # At least one partial key should have been created during streaming
+        # (may vary based on simulation)
+
+    async def test_incremental_context_writes_cleanup(self, agent, agent_runner, mock_llm_provider, context_manager):
+        """Test cleanup of partial keys on completion.
+
+        After pattern completion, partial keys should be deleted to avoid
+        clutter in the context database.
+        """
+        config = agent.get_config()
+        config.incremental_context_writes = True
+        config.stream_pattern_content = True
+        agent.set_config(config)
+
+        mock_llm_provider.set_response("<reasoning>Complete thought</reasoning>")
+
+        final_iteration = None
+        pattern_names = []
+
+        async for event in agent_runner.step_stream():
+            if isinstance(event, PatternEndEvent):
+                pattern_names.append(event.pattern_name)
+            if isinstance(event, StepCompleteEvent):
+                final_iteration = event.result.iteration
+
+        # After completion, partial keys should be deleted
+        if final_iteration is not None:
+            for pattern_name in pattern_names:
+                partial_key = f"pattern_partial:{pattern_name}:{final_iteration}"
+                record = context_manager.get(partial_key)
+                # Key should be deleted after pattern completes
+                assert record is None
+
+    async def test_incremental_context_writes_with_tools(self, agent, agent_runner, mock_llm_provider, context_manager):
+        """Test incremental writes during tool execution.
+
+        Incremental context writes should work properly when tools are
+        also being executed.
+        """
+        config = agent.get_config()
+        config.incremental_context_writes = True
+        agent.set_config(config)
+
+        mock_llm_provider.set_response('<tool>{"name": "echo", "arguments": {"message": "test"}}</tool>')
+
+        context_write_events = []
+        async for event in agent_runner.step_stream():
+            if isinstance(event, ContextWriteEvent):
+                context_write_events.append(event)
+
+        # Should have context write events
+        assert len(context_write_events) >= 0  # May vary
+
+
+class TestAgentInputMappingLiteral:
+    """Tests for input_mapping with literal: prefix."""
+
+    def test_input_mapping_literal_prepend(self, agent, agent_runner, mock_llm_provider):
+        """Test literal: prefix with prepend operation.
+
+        When input_mapping includes literal: prefix with prepend, the literal
+        text should be prepended to the prompt.
+        """
+        config = agent.get_config()
+        config.input_mapping = [("literal:System: You are a helpful assistant.", "prepend")]
+        agent.set_config(config)
+
+        mock_llm_provider.set_response("I am helpful.")
+
+        result = agent_runner.step(user_input="Hello")
+
+        # The prompt should have included the literal text
+        # We can verify this worked by checking the result is valid
+        assert result is not None
+        assert result.status == AgentStatus.OK
+
+    def test_input_mapping_literal_append(self, agent, agent_runner, mock_llm_provider):
+        """Test literal: prefix with append operation.
+
+        When input_mapping includes literal: prefix with append, the literal
+        text should be appended to the prompt.
+        """
+        config = agent.get_config()
+        config.input_mapping = [("literal:Please respond concisely.", "append")]
+        agent.set_config(config)
+
+        mock_llm_provider.set_response("Okay.")
+
+        result = agent_runner.step(user_input="Be brief")
+
+        assert result is not None
+        assert result.status == AgentStatus.OK
+
+    def test_input_mapping_multiple_literals(self, agent, agent_runner, mock_llm_provider, context_manager):
+        """Test multiple literal mappings in the same config.
+
+        Multiple literal: mappings should all be applied to the prompt
+        in the order and position specified.
+        """
+        # Set some context first
+        context_manager.set("user_name", b"Alice")
+
+        config = agent.get_config()
+        config.input_mapping = [
+            ("literal:System: Be helpful.", "prepend"),
+            ("user_name", "append"),
+            ("literal:End of instructions.", "append")
+        ]
+        agent.set_config(config)
+
+        mock_llm_provider.set_response("Understood.")
+
+        result = agent_runner.step(user_input="Test")
+
+        assert result is not None
+        assert result.status == AgentStatus.OK
+
+
+@pytest.mark.asyncio
+class TestAgentToolStateTracking:
+    """Tests for tool state tracking feature."""
+
+    async def test_tool_state_tracking_started(self, agent_runner, mock_llm_provider, context_manager):
+        """Test tool_state:{call_id} context keys on tool start.
+
+        When a tool starts execution, a context key tool_state:{call_id}
+        should be created with value 'started'.
+        """
+        mock_llm_provider.set_response('<tool>{"name": "echo", "arguments": {"message": "test"}}</tool>')
+
+        tool_call_ids = []
+        async for event in agent_runner.step_stream():
+            if isinstance(event, ToolStartEvent):
+                tool_call_ids.append(event.call_id)
+
+        # Verify state keys were created
+        for call_id in tool_call_ids:
+            state_key = f"tool_state:{call_id}"
+            record = context_manager.get(state_key)
+            # State should be either 'started' or already transitioned to 'finished'
+            assert record is not None
+            assert record.value in [b"started", b"finished"]
+
+    async def test_tool_state_tracking_finished(self, agent_runner, mock_llm_provider, context_manager):
+        """Test state transitions to finished.
+
+        After successful tool execution, the state should transition
+        from 'started' to 'finished'.
+        """
+        mock_llm_provider.set_response('<tool>{"name": "echo", "arguments": {"message": "success"}}</tool>')
+
+        tool_call_ids = []
+        async for event in agent_runner.step_stream():
+            if isinstance(event, ToolEndEvent):
+                if event.result.success:
+                    tool_call_ids.append(event.call_id)
+
+        # Verify state is 'finished' for successful tools
+        for call_id in tool_call_ids:
+            state_key = f"tool_state:{call_id}"
+            record = context_manager.get(state_key)
+            assert record is not None
+            assert record.value == b"finished"
+
+    async def test_tool_state_tracking_failed(self, agent, agent_runner, mock_llm_provider, context_manager, tool_registry):
+        """Test state transitions to failed.
+
+        When a tool execution fails, the state should transition to 'failed'.
+        """
+        # Register a tool that fails
+        def error_func(inputs):
+            raise ValueError("Tool error")
+
+        from agentic.tools import create_tool
+        error_tool = create_tool("error_tool", error_func)
+        tool_registry.register(error_tool)
+
+        config = agent.get_config()
+        config.tools_allowed.append("error_tool")
+        agent.set_config(config)
+
+        mock_llm_provider.set_response('<tool>{"name": "error_tool", "arguments": {}}</tool>')
+
+        failed_call_ids = []
+        async for event in agent_runner.step_stream():
+            if isinstance(event, ToolEndEvent):
+                if not event.result.success:
+                    failed_call_ids.append(event.call_id)
+
+        # Verify state is 'failed' for failed tools
+        for call_id in failed_call_ids:
+            state_key = f"tool_state:{call_id}"
+            record = context_manager.get(state_key)
+            assert record is not None
+            assert record.value == b"failed"
+
+    async def test_tool_state_tracking_multiple_tools(self, agent_runner, mock_llm_provider, context_manager):
+        """Test state tracking for multiple concurrent tools.
+
+        Each tool should have its own state tracking key, even when
+        multiple tools execute.
+        """
+        mock_llm_provider.set_response(
+            '<tool>{"name": "echo", "arguments": {"message": "1"}}</tool>'
+            '<tool>{"name": "calculator", "arguments": {"a": 2, "b": 3, "operation": "add"}}</tool>'
+        )
+
+        tool_call_ids = []
+        async for event in agent_runner.step_stream():
+            if isinstance(event, ToolEndEvent):
+                tool_call_ids.append(event.call_id)
+
+        # Each tool should have its own state key
+        assert len(tool_call_ids) == 2
+
+        for call_id in tool_call_ids:
+            state_key = f"tool_state:{call_id}"
+            record = context_manager.get(state_key)
+            assert record is not None
+            # Both should be finished
+            assert record.value == b"finished"

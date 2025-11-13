@@ -12,6 +12,7 @@ context/
 
 # Specification docs
 docs/
+analysis_*.md
 
 # Claude Code
 .claude/
