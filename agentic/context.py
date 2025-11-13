@@ -67,14 +67,18 @@ class ContextManager:
         self._storage = storage
         self._iteration = iteration
 
-    def set(self, key: str, value: bytes, iteration: int | None = None) -> ContextRecord:
+    def set(self, key: str, value: str | bytes, iteration: int | None = None) -> ContextRecord:
         """
         Set context value with automatic versioning.
 
         Args:
+            key: Context key
+            value: Value to store (str will be automatically encoded to bytes using UTF-8)
             iteration: Explicit iteration to use. If None, uses current global iteration.
                       Pass explicit value when multiple agents share same iteration manager.
         """
+        value_bytes = value.encode('utf-8') if isinstance(value, str) else value
+
         latest_key = f"context:{key}:latest".encode('utf-8')
         latest_value = self._storage.get(latest_key)
 
@@ -84,7 +88,7 @@ class ContextManager:
             version = int(latest_value.decode('utf-8')) + 1
 
         record = ContextRecord(
-            value=value,
+            value=value_bytes,
             iteration=iteration if iteration is not None else self._iteration.get(),
             timestamp=now_timestamp(),
             version=version
@@ -97,30 +101,32 @@ class ContextManager:
 
         return record
 
-    def update(self, key: str, value: bytes, iteration: int | None = None) -> ContextRecord:
+    def update(self, key: str, value: str | bytes, iteration: int | None = None) -> ContextRecord:
         """
         Update context value without creating a new version.
         Overwrites the current version. If key doesn't exist, creates version 1.
 
         Args:
+            key: Context key
+            value: Value to store (str will be automatically encoded to bytes using UTF-8)
             iteration: Explicit iteration to use. If None, uses current global iteration.
                       Pass explicit value when multiple agents share same iteration manager.
 
         Use for streaming/incremental writes within same logical operation.
         Use set() for new generations/completions that should create new versions.
         """
+        value_bytes = value.encode('utf-8') if isinstance(value, str) else value
+
         latest_key = f"context:{key}:latest".encode('utf-8')
         latest_value = self._storage.get(latest_key)
 
         if latest_value is None:
-            # First write: create version 1
             version = 1
         else:
-            # Overwrite current version (don't increment)
             version = int(latest_value.decode('utf-8'))
 
         record = ContextRecord(
-            value=value,
+            value=value_bytes,
             iteration=iteration if iteration is not None else self._iteration.get(),
             timestamp=now_timestamp(),
             version=version
