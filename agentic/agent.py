@@ -194,6 +194,9 @@ class AgentRunner:
         tool_execution_tasks: list[asyncio.Task] = []
         tool_results: list[ToolResult] = []
 
+        # Per-pattern-type counters for DB indexing
+        pattern_counters: dict[str, int] = {}
+
         # Event queue for concurrent tool execution
         tool_event_queue: asyncio.Queue = asyncio.Queue()
 
@@ -215,9 +218,10 @@ class AgentRunner:
                         break
 
                 # Incremental DB write for LLM output - EVERY token (no versioning during stream)
-                partial_output = "".join(raw_output_buffer)
-                streaming_key = f"llm_streaming:{current_iteration}"
-                self._agent.context.update(streaming_key, partial_output.encode('utf-8'))
+                if config.incremental_context_writes:
+                    partial_output = "".join(raw_output_buffer)
+                    streaming_key = f"llm_streaming:{current_iteration}"
+                    self._agent.context.update(streaming_key, partial_output.encode('utf-8'), iteration=current_iteration)
 
                 # Feed token to pattern extractor
                 if pattern_extractor:
@@ -237,25 +241,31 @@ class AgentRunner:
                             yield PatternContentEvent(pattern_name, content, is_partial=True, step_id=step_id)
 
                             # Incremental DB write for partial pattern content (no versioning during stream)
-                            partial_key = f"pattern_partial:{pattern_name}:{current_iteration}"
-                            existing = self._agent.context.get(partial_key)
-                            if existing:
-                                accumulated = existing.value.decode('utf-8') + content
-                            else:
-                                accumulated = content
-                            self._agent.context.update(partial_key, accumulated.encode('utf-8'))
+                            if config.incremental_context_writes:
+                                partial_key = f"pattern_partial:{pattern_name}:{current_iteration}"
+                                existing = self._agent.context.get(partial_key)
+                                if existing:
+                                    accumulated = existing.value.decode('utf-8') + content
+                                else:
+                                    accumulated = content
+                                self._agent.context.update(partial_key, accumulated.encode('utf-8'), iteration=current_iteration)
 
                         elif event_type == "pattern_end":
                             _, pattern_name, pattern_type, full_content, tool_call = event_data
                             yield PatternEndEvent(pattern_name, pattern_type, full_content, step_id=step_id)
 
                             # Incremental DB write for detected pattern (versioned - completion)
-                            pattern_key = f"pattern:{pattern_type}:{current_iteration}:{len(detected_tools)}"
-                            self._agent.context.set(pattern_key, full_content.encode('utf-8'))
+                            # Use per-type counter for consistent indexing
+                            if pattern_type not in pattern_counters:
+                                pattern_counters[pattern_type] = 0
+                            pattern_key = f"pattern:{pattern_type}:{current_iteration}:{pattern_counters[pattern_type]}"
+                            self._agent.context.set(pattern_key, full_content.encode('utf-8'), iteration=current_iteration)
+                            pattern_counters[pattern_type] += 1
 
-                            # Clean up partial pattern key
-                            partial_key = f"pattern_partial:{pattern_name}:{current_iteration}"
-                            self._agent.context.delete(partial_key)
+                            # Clean up partial pattern key if it exists
+                            if config.incremental_context_writes:
+                                partial_key = f"pattern_partial:{pattern_name}:{current_iteration}"
+                                self._agent.context.delete(partial_key)
 
                             # Handle tool execution if concurrent mode enabled
                             if tool_call:
@@ -333,7 +343,7 @@ class AgentRunner:
         if pattern_extractor:
             segments, malformed_patterns = pattern_extractor.finalize(iteration=current_iteration)
 
-            # Emit error events for malformed patterns and write to DB
+            # Emit error events for malformed patterns and REVERT partial keys
             if malformed_patterns:
                 for pattern_name, partial_content in malformed_patterns.items():
                     yield ErrorEvent(
@@ -344,9 +354,11 @@ class AgentRunner:
                         step_id=step_id
                     )
 
-                    # Write malformed pattern to DB (transient, for crash recovery - versioned)
-                    malformed_key = f"pattern_malformed:{pattern_name}:{current_iteration}"
-                    self._agent.context.set(malformed_key, partial_content.encode('utf-8'))
+                    # Revert partial pattern key (delete live updates for malformed pattern)
+                    # Malformed content stays accessible in-memory via partial_malformed_patterns
+                    if config.incremental_context_writes:
+                        partial_key = f"pattern_partial:{pattern_name}:{current_iteration}"
+                        self._agent.context.delete(partial_key)
         else:
             # No pattern extraction - entire output is response
             segments = ExtractedSegments(response=raw_output)
@@ -393,7 +405,7 @@ class AgentRunner:
         tool_execution_failed = any(not tr.success for tr in tool_results)
 
         # Update context
-        self._update_context_from_output(raw_output, segments, tool_results)
+        self._update_context_from_output(raw_output, segments, tool_results, current_iteration)
 
         # Emit context write event if enabled
         if config.incremental_context_writes:
@@ -497,7 +509,7 @@ class AgentRunner:
             tool_results = self._execute_tools(segments.tools, current_iteration, processing_mode=effective_mode)
             tool_execution_failed = any(not tr.success for tr in tool_results)
 
-        self._update_context_from_output(raw_output, segments, tool_results)
+        self._update_context_from_output(raw_output, segments, tool_results, current_iteration)
 
         error_message = None
         error_type = None
@@ -601,7 +613,7 @@ class AgentRunner:
         for tool_index, tool_call in enumerate(tool_calls):
             # Write tool state: started
             tool_state_key = f"tool_state:{tool_call.call_id}"
-            self._agent.context.set(tool_state_key, b"started")
+            self._agent.context.set(tool_state_key, b"started", iteration=iteration)
 
             # Emit start event
             yield ToolStartEvent(tool_call.name, tool_call.arguments, iteration, tool_call.call_id, step_id=step_id)
@@ -618,7 +630,7 @@ class AgentRunner:
                 )
                 yield ErrorEvent("tool_not_allowed", result.error_message, recoverable=True, step_id=step_id)
                 yield ToolEndEvent(tool_call.name, result, tool_call.call_id, step_id=step_id)
-                self._agent.context.set(tool_state_key, b"failed")
+                self._agent.context.set(tool_state_key, b"failed", iteration=iteration)
                 self._store_tool_result(tool_call.call_id, result, iteration)
                 continue
 
@@ -635,7 +647,7 @@ class AgentRunner:
                 )
                 yield ErrorEvent("tool_not_found", result.error_message, recoverable=True, step_id=step_id)
                 yield ToolEndEvent(tool_call.name, result, tool_call.call_id, step_id=step_id)
-                self._agent.context.set(tool_state_key, b"failed")
+                self._agent.context.set(tool_state_key, b"failed", iteration=iteration)
                 self._store_tool_result(tool_call.call_id, result, iteration)
                 continue
 
@@ -680,7 +692,7 @@ class AgentRunner:
                     iteration=iteration
                 )
                 yield ToolEndEvent(tool_call.name, result, tool_call.call_id, step_id=step_id)
-                self._agent.context.set(tool_state_key, b"finished")
+                self._agent.context.set(tool_state_key, b"finished", iteration=iteration)
                 self._store_tool_result(tool_call.call_id, result, iteration)
 
             except Exception as e:
@@ -695,7 +707,7 @@ class AgentRunner:
                 )
                 yield ErrorEvent("tool_execution_error", result.error_message, recoverable=True, step_id=step_id)
                 yield ToolEndEvent(tool_call.name, result, tool_call.call_id, step_id=step_id)
-                self._agent.context.set(tool_state_key, b"failed")
+                self._agent.context.set(tool_state_key, b"failed", iteration=iteration)
                 self._store_tool_result(tool_call.call_id, result, iteration)
 
     async def _execute_single_tool_concurrent(
@@ -718,7 +730,7 @@ class AgentRunner:
 
         # Write tool state: started
         tool_state_key = f"tool_state:{tool_call.call_id}"
-        self._agent.context.set(tool_state_key, b"started")
+        self._agent.context.set(tool_state_key, b"started", iteration=iteration)
 
         # Emit start event
         await event_queue.put(ToolStartEvent(tool_call.name, tool_call.arguments, iteration, tool_call.call_id, step_id=step_id))
@@ -738,7 +750,7 @@ class AgentRunner:
             results_list.append(result)
 
             # Write tool state: failed
-            self._agent.context.set(tool_state_key, b"failed")
+            self._agent.context.set(tool_state_key, b"failed", iteration=iteration)
 
             # Incremental DB write with call_id
             self._store_tool_result(tool_call.call_id, result, iteration)
@@ -760,7 +772,7 @@ class AgentRunner:
             results_list.append(result)
 
             # Write tool state: failed
-            self._agent.context.set(tool_state_key, b"failed")
+            self._agent.context.set(tool_state_key, b"failed", iteration=iteration)
 
             # Incremental DB write with call_id
             self._store_tool_result(tool_call.call_id, result, iteration)
@@ -803,7 +815,7 @@ class AgentRunner:
             results_list.append(result)
 
             # Write tool state: finished
-            self._agent.context.set(tool_state_key, b"finished")
+            self._agent.context.set(tool_state_key, b"finished", iteration=iteration)
 
             # Incremental DB write with call_id
             self._store_tool_result(tool_call.call_id, result, iteration)
@@ -823,7 +835,7 @@ class AgentRunner:
             results_list.append(result)
 
             # Write tool state: failed
-            self._agent.context.set(tool_state_key, b"failed")
+            self._agent.context.set(tool_state_key, b"failed", iteration=iteration)
 
             # Incremental DB write with call_id
             self._store_tool_result(tool_call.call_id, result, iteration)
@@ -835,6 +847,10 @@ class AgentRunner:
         effective_mode = processing_mode if processing_mode is not None else config.processing_mode
 
         for tool_index, tool_call in enumerate(tool_calls):
+            # Write tool state: started
+            tool_state_key = f"tool_state:{tool_call.call_id}"
+            self._agent.context.set(tool_state_key, b"started", iteration=iteration)
+
             if tool_call.name not in config.tools_allowed:
                 result = ToolResult(
                     name=tool_call.name,
@@ -845,6 +861,7 @@ class AgentRunner:
                     iteration=iteration
                 )
                 results.append(result)
+                self._agent.context.set(tool_state_key, b"failed", iteration=iteration)
                 self._store_tool_result(tool_call.call_id, result, iteration)
                 continue
 
@@ -859,11 +876,17 @@ class AgentRunner:
                     iteration=iteration
                 )
                 results.append(result)
+                self._agent.context.set(tool_state_key, b"failed", iteration=iteration)
                 self._store_tool_result(tool_call.call_id, result, iteration)
                 continue
 
             result = tool.run(tool_call.arguments, iteration, processing_mode=effective_mode)
             results.append(result)
+            # Write tool state based on success/failure
+            if result.success:
+                self._agent.context.set(tool_state_key, b"finished", iteration=iteration)
+            else:
+                self._agent.context.set(tool_state_key, b"failed", iteration=iteration)
             self._store_tool_result(tool_call.call_id, result, iteration)
 
         return results
@@ -880,20 +903,21 @@ class AgentRunner:
             "iteration": iteration,
             "call_id": call_id
         }).encode('utf-8')
-        self._agent.context.set(result_key, result_data)
+        self._agent.context.set(result_key, result_data, iteration=iteration)
 
     def _update_context_from_output(
         self,
         raw_output: str,
         segments: ExtractedSegments,
-        tool_results: list[ToolResult]
+        tool_results: list[ToolResult],
+        iteration: int
     ) -> None:
         """Update context based on output_mapping rules."""
         config = self._agent.get_config()
 
         for context_key, operation in config.output_mapping:
             if operation == "set_latest":
-                self._agent.context.set(context_key, raw_output.encode('utf-8'))
+                self._agent.context.set(context_key, raw_output.encode('utf-8'), iteration=iteration)
 
             elif operation == "append_version":
                 existing = self._agent.context.get(context_key)
@@ -901,16 +925,16 @@ class AgentRunner:
                     combined = existing.value.decode('utf-8') + "\n\n" + raw_output
                 else:
                     combined = raw_output
-                self._agent.context.set(context_key, combined.encode('utf-8'))
+                self._agent.context.set(context_key, combined.encode('utf-8'), iteration=iteration)
 
             elif operation == "set_response":
                 if segments.response:
-                    self._agent.context.set(context_key, segments.response.encode('utf-8'))
+                    self._agent.context.set(context_key, segments.response.encode('utf-8'), iteration=iteration)
 
             elif operation == "set_reasoning":
                 if segments.reasoning:
                     reasoning_text = "\n".join(segments.reasoning)
-                    self._agent.context.set(context_key, reasoning_text.encode('utf-8'))
+                    self._agent.context.set(context_key, reasoning_text.encode('utf-8'), iteration=iteration)
 
             elif operation == "set_tools":
                 if tool_results:
@@ -922,7 +946,7 @@ class AgentRunner:
                         }
                         for tr in tool_results
                     ])
-                    self._agent.context.set(context_key, tools_data.encode('utf-8'))
+                    self._agent.context.set(context_key, tools_data.encode('utf-8'), iteration=iteration)
 
     def _step_in_thread(self, user_input: str | None, processing_mode: ProcessingMode | None = None) -> AgentStepResult:
         """Execute agent step in a separate thread."""

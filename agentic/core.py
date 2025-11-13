@@ -70,7 +70,7 @@ class AgentStepResult:
     iteration: int
     error_message: str | None = None  # Populated when status is ERROR
     error_type: str | None = None  # e.g., "llm_error", "tool_execution_error", "tool_not_found"
-    partial_malformed_patterns: dict[str, str] | None = None  # Malformed pattern content (not persisted)
+    partial_malformed_patterns: dict[str, str] | None = None  # Malformed pattern content (live DB updates reverted, kept in-memory only)
 
 
 @dataclass

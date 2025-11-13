@@ -69,9 +69,13 @@ class ContextManager:
         self._storage = storage
         self._iteration = iteration
 
-    def set(self, key: str, value: bytes, processing_mode=None) -> ContextRecord:
+    def set(self, key: str, value: bytes, processing_mode=None, iteration: int | None = None) -> ContextRecord:
         """
         Set context value with automatic versioning.
+
+        Args:
+            iteration: Explicit iteration to use. If None, uses current global iteration.
+                      Pass explicit value when multiple agents share same iteration manager.
 
         Note: Currently synchronous regardless of processing_mode.
         Mode parameter reserved for future async I/O optimization.
@@ -86,7 +90,7 @@ class ContextManager:
 
         record = ContextRecord(
             value=value,
-            iteration=self._iteration.get(),
+            iteration=iteration if iteration is not None else self._iteration.get(),
             timestamp=now_timestamp(),
             version=version
         )
@@ -98,10 +102,14 @@ class ContextManager:
 
         return record
 
-    def update(self, key: str, value: bytes, processing_mode=None) -> ContextRecord:
+    def update(self, key: str, value: bytes, processing_mode=None, iteration: int | None = None) -> ContextRecord:
         """
         Update context value without creating a new version.
         Overwrites the current version. If key doesn't exist, creates version 1.
+
+        Args:
+            iteration: Explicit iteration to use. If None, uses current global iteration.
+                      Pass explicit value when multiple agents share same iteration manager.
 
         Use for streaming/incremental writes within same logical operation.
         Use set() for new generations/completions that should create new versions.
@@ -121,7 +129,7 @@ class ContextManager:
 
         record = ContextRecord(
             value=value,
-            iteration=self._iteration.get(),
+            iteration=iteration if iteration is not None else self._iteration.get(),
             timestamp=now_timestamp(),
             version=version
         )

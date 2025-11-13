@@ -13,7 +13,8 @@ from .patterns import PatternRegistry
 from .core import AgentStepResult, AgentStatus, ProcessingMode
 from .events import (
     AgentEvent, StatusEvent, StepCompleteEvent,
-    LLMCompleteEvent, LLMTokenEvent, PatternEndEvent
+    LLMCompleteEvent, LLMTokenEvent, PatternEndEvent, ToolEndEvent,
+    PatternStartEvent, ToolStartEvent, ToolOutputEvent, ContextWriteEvent, ErrorEvent, PatternContentEvent
 )
 
 
@@ -24,7 +25,7 @@ class LogicCondition:
     pattern_name: str
     match_type: str  # "contains" | "equals" | "regex"
     target: str  # "response" | "reasoning" | "tool_output" | "context:{key}"
-    evaluation_point: str = "auto"  # "auto" | "llm_complete" | "tool_detected" | "step_complete" | "any_event"
+    evaluation_point: str = "auto"  # "auto" | "llm_token" | "llm_complete" | "tool_detected" | "tool_finished" | "step_complete" | "any_event"
     # "auto" uses smart defaults: pattern/regex → llm_complete, context → step_complete
 
 
@@ -88,8 +89,10 @@ class LogicRunner:
 
         Evaluates conditions at appropriate points based on evaluation_point:
         - "auto": infers from target (context → step_complete, patterns → llm_complete)
+        - "llm_token": on every LLM chunk as it streams (LLMTokenEvent)
         - "llm_complete": after LLMCompleteEvent
         - "tool_detected": after PatternEndEvent with tool type
+        - "tool_finished": after ToolEndEvent (tool execution completes)
         - "step_complete": after StepCompleteEvent
         - "any_event": on every event
         """
@@ -129,7 +132,12 @@ class LogicRunner:
                 event_type = None
                 eval_context = None
 
-                if isinstance(event, LLMCompleteEvent):
+                if isinstance(event, LLMTokenEvent):
+                    event_type = "llm_token"
+                    should_check = self._has_conditions_for_event("llm_token")
+                    eval_context = {"raw_output": partial_raw_output}
+
+                elif isinstance(event, LLMCompleteEvent):
                     event_type = "llm_complete"
                     should_check = self._has_conditions_for_event("llm_complete")
                     # Build evaluation context from LLM output
@@ -141,10 +149,101 @@ class LogicRunner:
                         should_check = self._has_conditions_for_event("tool_detected")
                         # Build evaluation context from detected tool
                         eval_context = {
-                            "tool_content": event.full_content,
+                            "tool_output": event.full_content,
                             "pattern_name": event.pattern_name,
                             "raw_output": partial_raw_output
                         }
+                    else:
+                        # Handle non-tool patterns (reasoning, response)
+                        event_type = "pattern_end"
+                        should_check = self._has_conditions_for_event("pattern_end")
+                        eval_context = {
+                            "pattern_name": event.pattern_name,
+                            "pattern_type": event.pattern_type,
+                            "full_content": event.full_content,
+                            "raw_output": partial_raw_output
+                        }
+
+                elif isinstance(event, ToolEndEvent):
+                    event_type = "tool_finished"
+                    should_check = self._has_conditions_for_event("tool_finished")
+                    # Build evaluation context from tool execution result
+                    eval_context = {
+                        "tool_name": event.tool_name,
+                        "tool_result": event.result,
+                        "tool_output": str(event.result.output) if event.result.output else "",
+                        "tool_success": event.result.success,
+                        "raw_output": partial_raw_output
+                    }
+
+                elif isinstance(event, PatternStartEvent):
+                    event_type = "pattern_start"
+                    should_check = self._has_conditions_for_event("pattern_start")
+                    eval_context = {
+                        "pattern_name": event.pattern_name,
+                        "pattern_type": event.pattern_type,
+                        "raw_output": partial_raw_output
+                    }
+
+                elif isinstance(event, PatternContentEvent):
+                    event_type = "pattern_content"
+                    should_check = self._has_conditions_for_event("pattern_content")
+                    eval_context = {
+                        "pattern_name": event.pattern_name,
+                        "pattern_content": event.content,
+                        "is_partial": event.is_partial,
+                        "raw_output": partial_raw_output
+                    }
+
+                elif isinstance(event, ToolStartEvent):
+                    event_type = "tool_start"
+                    should_check = self._has_conditions_for_event("tool_start")
+                    eval_context = {
+                        "tool_name": event.tool_name,
+                        "tool_arguments": event.arguments,
+                        "iteration": event.iteration,
+                        "raw_output": partial_raw_output
+                    }
+
+                elif isinstance(event, ToolOutputEvent):
+                    event_type = "tool_output"
+                    should_check = self._has_conditions_for_event("tool_output")
+                    eval_context = {
+                        "tool_name": event.tool_name,
+                        "tool_output": str(event.output),
+                        "is_partial": event.is_partial,
+                        "raw_output": partial_raw_output
+                    }
+
+                elif isinstance(event, ContextWriteEvent):
+                    event_type = "context_write"
+                    should_check = self._has_conditions_for_event("context_write")
+                    eval_context = {
+                        "context_key": event.key,
+                        "value_preview": event.value_preview,
+                        "version": event.version,
+                        "iteration": event.iteration,
+                        "raw_output": partial_raw_output
+                    }
+
+                elif isinstance(event, ErrorEvent):
+                    event_type = "error"
+                    should_check = self._has_conditions_for_event("error")
+                    eval_context = {
+                        "error_type": event.error_type,
+                        "error_message": event.error_message,
+                        "recoverable": event.recoverable,
+                        "raw_output": partial_raw_output
+                    }
+
+                elif isinstance(event, StatusEvent):
+                    event_type = "status"
+                    should_check = self._has_conditions_for_event("status")
+                    eval_context = {
+                        "status": event.status,
+                        "status_message": event.message,
+                        "raw_output": partial_raw_output
+                    }
 
                 elif isinstance(event, StepCompleteEvent):
                     event_type = "step_complete"
@@ -217,7 +316,34 @@ class LogicRunner:
             if result.status == AgentStatus.ERROR and self._config.break_on_error:
                 break
 
-            should_stop, loop_satisfied = self._check_conditions(result)
+            # Check conditions at different evaluation points (simulating streaming behavior)
+            # Check in order: llm_complete, tool_detected, tool_finished, step_complete
+            should_stop = False
+            loop_satisfied = False
+
+            # llm_complete evaluation point
+            if not should_stop and not loop_satisfied:
+                stop, satisfied = self._check_conditions_for_event(result, "llm_complete")
+                should_stop = should_stop or stop
+                loop_satisfied = loop_satisfied or satisfied
+
+            # tool_detected evaluation point (if tools were detected)
+            if not should_stop and not loop_satisfied and result.segments.tools:
+                stop, satisfied = self._check_conditions_for_event(result, "tool_detected")
+                should_stop = should_stop or stop
+                loop_satisfied = loop_satisfied or satisfied
+
+            # tool_finished evaluation point (if tools were executed)
+            if not should_stop and not loop_satisfied and result.tool_results:
+                stop, satisfied = self._check_conditions_for_event(result, "tool_finished")
+                should_stop = should_stop or stop
+                loop_satisfied = loop_satisfied or satisfied
+
+            # step_complete evaluation point (always check)
+            if not should_stop and not loop_satisfied:
+                stop, satisfied = self._check_conditions_for_event(result, "step_complete")
+                should_stop = should_stop or stop
+                loop_satisfied = loop_satisfied or satisfied
 
             if should_stop:
                 break
@@ -234,23 +360,6 @@ class LogicRunner:
                 break
 
         return results
-
-    def _check_conditions(self, result: AgentStepResult) -> tuple[bool, bool]:
-        """Check stop and loop-until conditions. Returns (should_stop, loop_satisfied)."""
-        should_stop = False
-        loop_satisfied = False
-
-        for condition in self._config.stop_conditions:
-            if self._evaluate_condition(condition, result):
-                should_stop = True
-                break
-
-        for condition in self._config.loop_until_conditions:
-            if self._evaluate_condition(condition, result):
-                loop_satisfied = True
-                break
-
-        return should_stop, loop_satisfied
 
     def _evaluate_condition(self, condition: LogicCondition, result: AgentStepResult) -> bool:
         """Evaluate condition against result."""
@@ -419,7 +528,7 @@ class LogicRunner:
 
         Context dict contains keys like:
         - "raw_output": LLM output text
-        - "tool_content": Tool pattern content
+        - "tool_output": Tool pattern content or tool execution output
         - "pattern_name": Pattern name
 
         Returns (should_stop, loop_satisfied).
@@ -450,7 +559,7 @@ class LogicRunner:
             if condition.target == "response" or condition.target == "reasoning":
                 target_text = context.get("raw_output")
             elif condition.target == "tool_output":
-                target_text = context.get("tool_content")
+                target_text = context.get("tool_output")
             elif condition.target.startswith("context:"):
                 # Read from DB context
                 context_key = condition.target[8:]
@@ -478,7 +587,7 @@ class LogicRunner:
             if condition.target == "response" or condition.target == "reasoning":
                 target_text = context.get("raw_output")
             elif condition.target == "tool_output":
-                target_text = context.get("tool_content")
+                target_text = context.get("tool_output")
             elif condition.target.startswith("context:"):
                 context_key = condition.target[8:]
                 record = self._context.get(context_key)
@@ -521,7 +630,7 @@ class LogicRunner:
             if condition.target == "response":
                 target_text = context.get("raw_output")
             elif condition.target == "tool_output":
-                target_text = context.get("tool_content")
+                target_text = context.get("tool_output")
             elif condition.target.startswith("context:"):
                 context_key = condition.target[8:]
                 record = self._context.get(context_key)
