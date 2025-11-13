@@ -12,6 +12,72 @@ from .core import SegmentType, ToolCall, ExtractedSegments, new_uuid
 MAX_JSON_SIZE = 1_000_000  # 1MB limit
 
 
+def _parse_tool_call(segment_text: str, iteration: int) -> ToolCall | None:
+    """
+    Parse tool call from segment. Supports JSON or line-based format.
+
+    JSON format: {"name": "tool_name", "arguments": {...}}
+    Line format: name: tool_name / arguments: {...}
+    """
+    try:
+        if len(segment_text) > MAX_JSON_SIZE:
+            return None
+
+        # Try JSON format first
+        if segment_text.strip().startswith('{'):
+            data = json.loads(segment_text)
+            return ToolCall(
+                name=data.get("name", "unknown"),
+                arguments=data.get("arguments", {}),
+                raw_segment=segment_text,
+                iteration=iteration,
+                call_id=data.get("call_id", new_uuid())
+            )
+
+        # Try line-based format
+        lines = segment_text.split('\n')
+        name = None
+        arguments = {}
+        arguments_json_lines = []
+        in_arguments_section = False
+
+        for line in lines:
+            line = line.strip()
+
+            if line.lower().startswith("name:"):
+                name = line.split(":", 1)[1].strip()
+            elif line.lower().startswith("arguments:"):
+                args_value = line.split(":", 1)[1].strip()
+                if args_value.startswith("{"):
+                    arguments_json_lines.append(args_value)
+                    in_arguments_section = True
+                else:
+                    arguments = {}
+            elif in_arguments_section:
+                arguments_json_lines.append(line)
+
+        if arguments_json_lines:
+            arguments_json = "\n".join(arguments_json_lines)
+            if arguments_json and len(arguments_json) <= MAX_JSON_SIZE:
+                try:
+                    arguments = json.loads(arguments_json)
+                except json.JSONDecodeError:
+                    arguments = {}
+
+        if name:
+            return ToolCall(
+                name=name,
+                arguments=arguments,
+                raw_segment=segment_text,
+                iteration=iteration,
+                call_id=new_uuid()
+            )
+
+        return None
+    except Exception:
+        return None
+
+
 @dataclass
 class Pattern:
     """Defines a pattern for extracting segments from text."""
@@ -117,13 +183,8 @@ class PatternExtractor:
     def __init__(self, pattern_set: PatternSet):
         self._pattern_set = pattern_set
 
-    def extract(self, text: str, iteration: int = 0, processing_mode=None) -> ExtractedSegments:
-        """
-        Extract segments from text using configured patterns.
-
-        Note: Currently synchronous regardless of processing_mode.
-        Mode parameter reserved for future optimization.
-        """
+    def extract(self, text: str, iteration: int = 0) -> ExtractedSegments:
+        """Extract segments from text using configured patterns."""
         segments = ExtractedSegments()
         extracted_ranges: list[tuple[int, int]] = []
 
@@ -134,7 +195,7 @@ class PatternExtractor:
                 extracted_ranges.append((start_pos, end_pos))
 
                 if pattern.segment_type == SegmentType.TOOL:
-                    tool_call = self._parse_tool_call(segment_text, iteration)
+                    tool_call = _parse_tool_call(segment_text, iteration)
                     if tool_call:
                         segments.tools.append(tool_call)
 
@@ -188,65 +249,6 @@ class PatternExtractor:
             remaining_parts.append(text[last_end:])
 
         return "\n".join(part.strip() for part in remaining_parts if part.strip())
-
-    def _parse_tool_call(self, segment_text: str, iteration: int) -> ToolCall | None:
-        """
-        Parse tool call from segment.
-        Expected format: name: tool_name / arguments: {...}
-        """
-        try:
-            if len(segment_text) > MAX_JSON_SIZE:
-                return None
-
-            if segment_text.strip().startswith('{'):
-                data = json.loads(segment_text)
-                return ToolCall(
-                    name=data.get("name", "unknown"),
-                    arguments=data.get("arguments", {}),
-                    raw_segment=segment_text,
-                    iteration=iteration,
-                    call_id=data.get("call_id", new_uuid())  # Use provided or generate new
-                )
-
-            lines = segment_text.split('\n')
-            name = None
-            arguments = {}
-            in_arguments = False
-            arg_lines = []
-
-            for line in lines:
-                line = line.strip()
-
-                if line.startswith("name:"):
-                    name = line.split("name:", 1)[1].strip()
-                elif line.startswith("arguments:"):
-                    in_arguments = True
-                elif in_arguments:
-                    arg_lines.append(line)
-
-            if arg_lines:
-                arg_text = '\n'.join(arg_lines)
-                if len(arg_text) <= MAX_JSON_SIZE:
-                    try:
-                        arguments = json.loads(arg_text)
-                    except json.JSONDecodeError:
-                        arguments = {"raw": arg_text}
-                else:
-                    arguments = {"error": "Arguments exceed size limit"}
-
-            if name:
-                return ToolCall(
-                    name=name,
-                    arguments=arguments,
-                    raw_segment=segment_text,
-                    iteration=iteration,
-                    call_id=new_uuid()  # Generate unique ID for line format
-                )
-
-        except (json.JSONDecodeError, KeyError, ValueError, AttributeError):
-            pass
-
-        return None
 
 
 def create_default_pattern_set() -> PatternSet:
@@ -365,7 +367,7 @@ class StreamingPatternExtractor:
 
                 tool_call = None
                 if pattern.segment_type == SegmentType.TOOL:
-                    tool_call = self._parse_tool_call_safe(full_content, 0)
+                    tool_call = _parse_tool_call(full_content, 0)
                     if tool_call:
                         self._completed_segments.tools.append(tool_call)
                 elif pattern.segment_type == SegmentType.REASONING:
@@ -485,63 +487,3 @@ class StreamingPatternExtractor:
             remaining_parts.append(self._buffer[last_end:])
 
         return "\n".join(part.strip() for part in remaining_parts if part.strip())
-
-    def _parse_tool_call_safe(self, segment_text: str, iteration: int) -> ToolCall | None:
-        """Parse tool call, safely handling errors."""
-        try:
-            if len(segment_text) > MAX_JSON_SIZE:
-                return None
-
-            # Try JSON format first
-            if segment_text.strip().startswith('{'):
-                data = json.loads(segment_text)
-                return ToolCall(
-                    name=data.get("name", "unknown"),
-                    arguments=data.get("arguments", {}),
-                    raw_segment=segment_text,
-                    iteration=iteration,
-                    call_id=data.get("call_id", new_uuid())  # Use provided or generate new
-                )
-
-            # Try line-based format
-            lines = segment_text.split('\n')
-            name = None
-            arguments = {}
-            arguments_json_lines = []
-            in_arguments_section = False
-
-            for line in lines:
-                line = line.strip()
-
-                if line.lower().startswith("name:"):
-                    name = line.split(":", 1)[1].strip()
-                elif line.lower().startswith("arguments:"):
-                    args_value = line.split(":", 1)[1].strip()
-                    if args_value.startswith("{"):
-                        arguments_json_lines.append(args_value)
-                        in_arguments_section = True
-                    else:
-                        arguments = {}
-                elif in_arguments_section:
-                    arguments_json_lines.append(line)
-
-            if arguments_json_lines:
-                arguments_json = "\n".join(arguments_json_lines)
-                if arguments_json and len(arguments_json) <= MAX_JSON_SIZE:
-                    try:
-                        arguments = json.loads(arguments_json)
-                    except json.JSONDecodeError:
-                        arguments = {}
-
-            if name:
-                return ToolCall(
-                    name=name,
-                    arguments=arguments,
-                    raw_segment=segment_text,
-                    iteration=iteration,
-                    call_id=new_uuid()  # Generate unique ID for line format
-                )
-
-            return None
-        except Exception:
-            return None

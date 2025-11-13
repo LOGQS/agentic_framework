@@ -3,9 +3,8 @@ Logic flows for controlling agent execution across iterations.
 """
 from dataclasses import dataclass, field
 import re
-import asyncio
-from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 from typing import AsyncIterator
+import asyncio
 
 from .agent import AgentRunner
 from .context import ContextManager
@@ -621,33 +620,6 @@ class LogicRunner:
             return target_text == condition.pattern_name
 
         return False
-
-    def _run_in_thread(self, initial_input: str | None) -> list[AgentStepResult]:
-        with ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(self._run_impl, initial_input)
-            return future.result()
-
-    def _run_in_process(self, initial_input: str | None) -> list[AgentStepResult]:
-        with ProcessPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(self._run_impl, initial_input)
-            return future.result()
-
-    def _run_async(self, initial_input: str | None) -> list[AgentStepResult]:
-        try:
-            loop = asyncio.get_running_loop()
-            raise RuntimeError(
-                "Cannot call sync _run_async from within an async context. "
-                "Use async/await pattern instead."
-            )
-        except RuntimeError as e:
-            if "no running event loop" in str(e) or "no current event loop" in str(e):
-                return asyncio.run(self._async_wrapper(initial_input))
-            else:
-                raise
-
-    async def _async_wrapper(self, initial_input: str | None) -> list[AgentStepResult]:
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._run_impl, initial_input)
 
 
 # Convenience functions for common logic patterns

@@ -20,8 +20,9 @@ from agentic.storage import RocksDBStorage, StorageConfig
 from agentic.context import ContextManager, IterationManager
 from agentic.patterns import PatternRegistry, PatternSet, Pattern, create_default_pattern_set
 from agentic.tools import ToolRegistry, Tool, ToolDefinition, create_tool
-from agentic.agent import Agent, AgentRunner, MockLLMProvider
+from agentic.agent import Agent, AgentRunner
 from agentic.core import AgentConfig, ProcessingMode, SegmentType
+from tests.mock_provider import MockLLMProvider
 
 
 @pytest.fixture

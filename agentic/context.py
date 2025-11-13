@@ -67,16 +67,13 @@ class ContextManager:
         self._storage = storage
         self._iteration = iteration
 
-    def set(self, key: str, value: bytes, processing_mode=None, iteration: int | None = None) -> ContextRecord:
+    def set(self, key: str, value: bytes, iteration: int | None = None) -> ContextRecord:
         """
         Set context value with automatic versioning.
 
         Args:
             iteration: Explicit iteration to use. If None, uses current global iteration.
                       Pass explicit value when multiple agents share same iteration manager.
-
-        Note: Currently synchronous regardless of processing_mode.
-        Mode parameter reserved for future async I/O optimization.
         """
         latest_key = f"context:{key}:latest".encode('utf-8')
         latest_value = self._storage.get(latest_key)
@@ -100,7 +97,7 @@ class ContextManager:
 
         return record
 
-    def update(self, key: str, value: bytes, processing_mode=None, iteration: int | None = None) -> ContextRecord:
+    def update(self, key: str, value: bytes, iteration: int | None = None) -> ContextRecord:
         """
         Update context value without creating a new version.
         Overwrites the current version. If key doesn't exist, creates version 1.
@@ -111,9 +108,6 @@ class ContextManager:
 
         Use for streaming/incremental writes within same logical operation.
         Use set() for new generations/completions that should create new versions.
-
-        Note: Currently synchronous regardless of processing_mode.
-        Mode parameter reserved for future async I/O optimization.
         """
         latest_key = f"context:{key}:latest".encode('utf-8')
         latest_value = self._storage.get(latest_key)
@@ -139,7 +133,7 @@ class ContextManager:
 
         return record
 
-    def get(self, key: str, version: int | None = None, processing_mode=None) -> ContextRecord | None:
+    def get(self, key: str, version: int | None = None) -> ContextRecord | None:
         """
         Get context value (latest version if version not specified).
         Returns None if key doesn't exist or is deleted.
@@ -164,12 +158,12 @@ class ContextManager:
 
         return record
 
-    def delete(self, key: str, processing_mode=None) -> None:
+    def delete(self, key: str) -> None:
         """
         Mark key as deleted with tombstone version.
         History is preserved but get() will return None.
         """
-        self.set(key, TOMBSTONE, processing_mode=processing_mode)
+        self.set(key, TOMBSTONE)
 
     def list_keys(self, prefix: str | None = None) -> list[str]:
         search_prefix = b"context:"

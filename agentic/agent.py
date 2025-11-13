@@ -107,6 +107,28 @@ class AgentRunner:
     def __init__(self, agent: Agent):
         self._agent = agent
 
+    def _create_tool_not_allowed_error(self, tool_name: str, iteration: int) -> ToolResult:
+        """Create error result for tool not in allowed list."""
+        return ToolResult(
+            name=tool_name,
+            output={},
+            success=False,
+            error_message=f"Tool '{tool_name}' not in allowed list",
+            execution_time=0.0,
+            iteration=iteration
+        )
+
+    def _create_tool_not_found_error(self, tool_name: str, iteration: int) -> ToolResult:
+        """Create error result for tool not found in registry."""
+        return ToolResult(
+            name=tool_name,
+            output={},
+            success=False,
+            error_message=f"Tool '{tool_name}' not found in registry",
+            execution_time=0.0,
+            iteration=iteration
+        )
+
     def step(self, user_input: str | None = None, processing_mode: ProcessingMode | None = None) -> AgentStepResult:
         """
         Execute a single agent step (batch mode).
@@ -564,14 +586,7 @@ class AgentRunner:
             yield ToolStartEvent(tool_call.name, tool_call.arguments, iteration, tool_call.call_id, step_id=step_id)
 
             if tool_call.name not in config.tools_allowed:
-                result = ToolResult(
-                    name=tool_call.name,
-                    output={},
-                    success=False,
-                    error_message=f"Tool '{tool_call.name}' not in allowed list",
-                    execution_time=0.0,
-                    iteration=iteration
-                )
+                result = self._create_tool_not_allowed_error(tool_call.name, iteration)
                 yield ErrorEvent("tool_not_allowed", result.error_message, recoverable=True, step_id=step_id)
                 yield ToolEndEvent(tool_call.name, result, tool_call.call_id, step_id=step_id)
                 self._agent.context.set(tool_state_key, b"failed", iteration=iteration)
@@ -580,14 +595,7 @@ class AgentRunner:
 
             tool = self._agent.tools.get(tool_call.name)
             if tool is None:
-                result = ToolResult(
-                    name=tool_call.name,
-                    output={},
-                    success=False,
-                    error_message=f"Tool '{tool_call.name}' not found in registry",
-                    execution_time=0.0,
-                    iteration=iteration
-                )
+                result = self._create_tool_not_found_error(tool_call.name, iteration)
                 yield ErrorEvent("tool_not_found", result.error_message, recoverable=True, step_id=step_id)
                 yield ToolEndEvent(tool_call.name, result, tool_call.call_id, step_id=step_id)
                 self._agent.context.set(tool_state_key, b"failed", iteration=iteration)
@@ -669,14 +677,7 @@ class AgentRunner:
         await event_queue.put(ToolStartEvent(tool_call.name, tool_call.arguments, iteration, tool_call.call_id, step_id=step_id))
 
         if tool_call.name not in config.tools_allowed:
-            result = ToolResult(
-                name=tool_call.name,
-                output={},
-                success=False,
-                error_message=f"Tool '{tool_call.name}' not in allowed list",
-                execution_time=0.0,
-                iteration=iteration
-            )
+            result = self._create_tool_not_allowed_error(tool_call.name, iteration)
             await event_queue.put(ErrorEvent("tool_not_allowed", result.error_message, recoverable=True, step_id=step_id))
             await event_queue.put(ToolEndEvent(tool_call.name, result, tool_call.call_id, step_id=step_id))
             results_list.append(result)
@@ -687,14 +688,7 @@ class AgentRunner:
 
         tool = self._agent.tools.get(tool_call.name)
         if tool is None:
-            result = ToolResult(
-                name=tool_call.name,
-                output={},
-                success=False,
-                error_message=f"Tool '{tool_call.name}' not found in registry",
-                execution_time=0.0,
-                iteration=iteration
-            )
+            result = self._create_tool_not_found_error(tool_call.name, iteration)
             await event_queue.put(ErrorEvent("tool_not_found", result.error_message, recoverable=True, step_id=step_id))
             await event_queue.put(ToolEndEvent(tool_call.name, result, tool_call.call_id, step_id=step_id))
             results_list.append(result)
@@ -767,14 +761,7 @@ class AgentRunner:
             self._agent.context.set(tool_state_key, b"started", iteration=iteration)
 
             if tool_call.name not in config.tools_allowed:
-                result = ToolResult(
-                    name=tool_call.name,
-                    output={},
-                    success=False,
-                    error_message=f"Tool '{tool_call.name}' not in allowed list",
-                    execution_time=0.0,
-                    iteration=iteration
-                )
+                result = self._create_tool_not_allowed_error(tool_call.name, iteration)
                 results.append(result)
                 self._agent.context.set(tool_state_key, b"failed", iteration=iteration)
                 self._store_tool_result(tool_call.call_id, result, iteration)
@@ -782,14 +769,7 @@ class AgentRunner:
 
             tool = self._agent.tools.get(tool_call.name)
             if tool is None:
-                result = ToolResult(
-                    name=tool_call.name,
-                    output={},
-                    success=False,
-                    error_message=f"Tool '{tool_call.name}' not found in registry",
-                    execution_time=0.0,
-                    iteration=iteration
-                )
+                result = self._create_tool_not_found_error(tool_call.name, iteration)
                 results.append(result)
                 self._agent.context.set(tool_state_key, b"failed", iteration=iteration)
                 self._store_tool_result(tool_call.call_id, result, iteration)
@@ -888,52 +868,3 @@ class AgentRunner:
     async def _async_wrapper(self, user_input: str | None, processing_mode: ProcessingMode | None = None) -> AgentStepResult:
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self._step_impl, user_input, processing_mode)
-
-
-class MockLLMProvider:
-    """
-    Mock LLM provider for testing that returns canned responses.
-
-    Supports both batch (generate) and streaming (stream) modes.
-    """
-
-    def __init__(self, response: str = "This is a mock response.", simulate_streaming: bool = False):
-        self._response = response
-        self._simulate_streaming = simulate_streaming
-
-    def generate(
-        self,
-        prompt: str,
-        max_tokens: int,
-        temperature: float,
-        **kwargs
-    ) -> str:
-        return self._response
-
-    async def stream(
-        self,
-        prompt: str,
-        max_tokens: int,
-        temperature: float,
-        **kwargs
-    ) -> AsyncIterator[str]:
-        """
-        Stream response tokens.
-
-        If simulate_streaming=True, yields word-by-word.
-        Otherwise yields entire response as one token.
-        """
-        if self._simulate_streaming:
-            # Simulate streaming by yielding word by word
-            words = self._response.split()
-            for i, word in enumerate(words):
-                if i < len(words) - 1:
-                    yield word + " "
-                else:
-                    yield word
-        else:
-            # Non-streaming: yield full response
-            yield self._response
-
-    def set_response(self, response: str) -> None:
-        self._response = response
