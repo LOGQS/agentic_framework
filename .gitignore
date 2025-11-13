@@ -16,3 +16,6 @@ analysis_*.md
 
 # Claude Code
 .claude/
+
+# Temporary testing
+temp/
