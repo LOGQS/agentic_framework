@@ -11,14 +11,11 @@ Covers:
 - Event emission during streaming
 """
 import pytest
-import asyncio
 
-from agentic.agent import Agent, AgentRunner, MockLLMProvider
+from agentic.agent import Agent, AgentRunner
+from tests.mock_provider import MockLLMProvider
 from agentic.core import AgentConfig, AgentStatus, ProcessingMode
 from agentic.events import (
-    LLMTokenEvent,
-    LLMCompleteEvent,
-    StatusEvent,
     ToolStartEvent,
     ToolEndEvent,
     StepCompleteEvent

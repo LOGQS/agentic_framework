@@ -20,7 +20,7 @@ class BaseEvent:
             self.timestamp = now_timestamp()
 
 
-@dataclass
+@dataclass(init=False)
 class LLMTokenEvent(BaseEvent):
     """Emitted when LLM generates a token."""
     token: str
@@ -32,7 +32,7 @@ class LLMTokenEvent(BaseEvent):
         self.step_id = step_id
 
 
-@dataclass
+@dataclass(init=False)
 class LLMCompleteEvent(BaseEvent):
     """Emitted when LLM generation completes."""
     full_text: str
@@ -44,7 +44,7 @@ class LLMCompleteEvent(BaseEvent):
         self.step_id = step_id
 
 
-@dataclass
+@dataclass(init=False)
 class StatusEvent(BaseEvent):
     """Emitted when agent status changes."""
     status: AgentStatus
@@ -58,13 +58,13 @@ class StatusEvent(BaseEvent):
         self.step_id = step_id
 
 
-@dataclass
+@dataclass(init=False)
 class ToolStartEvent(BaseEvent):
     """Emitted when tool execution begins."""
     tool_name: str
     arguments: dict[str, Any]
     iteration: int
-    call_id: str = ""  # Unique identifier for this tool invocation
+    call_id: str = ""
 
     def __init__(self, tool_name: str, arguments: dict[str, Any], iteration: int, call_id: str = "", timestamp: float = None, step_id: str = ""):
         self.tool_name = tool_name
@@ -76,13 +76,13 @@ class ToolStartEvent(BaseEvent):
         self.step_id = step_id
 
 
-@dataclass
+@dataclass(init=False)
 class ToolOutputEvent(BaseEvent):
     """Emitted when tool produces output (may be partial)."""
     tool_name: str
     output: Any
     is_partial: bool = False
-    call_id: str = ""  # Unique identifier for this tool invocation
+    call_id: str = ""
 
     def __init__(self, tool_name: str, output: Any, is_partial: bool = False, call_id: str = "", timestamp: float = None, step_id: str = ""):
         self.tool_name = tool_name
@@ -94,12 +94,12 @@ class ToolOutputEvent(BaseEvent):
         self.step_id = step_id
 
 
-@dataclass
+@dataclass(init=False)
 class ToolEndEvent(BaseEvent):
     """Emitted when tool execution completes."""
     tool_name: str
     result: ToolResult
-    call_id: str = ""  # Unique identifier for this tool invocation
+    call_id: str = ""
 
     def __init__(self, tool_name: str, result: ToolResult, call_id: str = "", timestamp: float = None, step_id: str = ""):
         self.tool_name = tool_name
@@ -110,11 +110,11 @@ class ToolEndEvent(BaseEvent):
         self.step_id = step_id
 
 
-@dataclass
+@dataclass(init=False)
 class ContextWriteEvent(BaseEvent):
     """Emitted when context is updated."""
     key: str
-    value_preview: str  # First 100 chars or summary
+    value_preview: str
     version: int
     iteration: int
 
@@ -128,13 +128,13 @@ class ContextWriteEvent(BaseEvent):
         self.step_id = step_id
 
 
-@dataclass
+@dataclass(init=False)
 class ErrorEvent(BaseEvent):
     """Emitted when an error occurs."""
     error_type: str
     error_message: str
     recoverable: bool = False
-    partial_data: Any = None  # For malformed patterns, stores partial content separately
+    partial_data: Any = None
 
     def __init__(self, error_type: str, error_message: str, recoverable: bool = False, partial_data: Any = None, timestamp: float = None, step_id: str = ""):
         self.error_type = error_type
@@ -146,11 +146,11 @@ class ErrorEvent(BaseEvent):
         self.step_id = step_id
 
 
-@dataclass
+@dataclass(init=False)
 class PatternStartEvent(BaseEvent):
     """Emitted when a pattern start tag is detected during streaming."""
     pattern_name: str
-    pattern_type: str  # "tool" | "reasoning" | "response"
+    pattern_type: str
 
     def __init__(self, pattern_name: str, pattern_type: str, timestamp: float = None, step_id: str = ""):
         self.pattern_name = pattern_name
@@ -160,7 +160,7 @@ class PatternStartEvent(BaseEvent):
         self.step_id = step_id
 
 
-@dataclass
+@dataclass(init=False)
 class PatternContentEvent(BaseEvent):
     """Emitted when pattern content is streamed (before end tag detected)."""
     pattern_name: str
@@ -176,12 +176,12 @@ class PatternContentEvent(BaseEvent):
         self.step_id = step_id
 
 
-@dataclass
+@dataclass(init=False)
 class PatternEndEvent(BaseEvent):
     """Emitted when a pattern end tag is detected during streaming."""
     pattern_name: str
-    pattern_type: str  # "tool" | "reasoning" | "response"
-    full_content: str  # Complete content between tags
+    pattern_type: str
+    full_content: str
 
     def __init__(self, pattern_name: str, pattern_type: str, full_content: str, timestamp: float = None, step_id: str = ""):
         self.pattern_name = pattern_name
@@ -192,7 +192,7 @@ class PatternEndEvent(BaseEvent):
         self.step_id = step_id
 
 
-@dataclass
+@dataclass(init=False)
 class StepCompleteEvent(BaseEvent):
     """Emitted when agent step completes. Contains final aggregated result."""
     result: AgentStepResult
