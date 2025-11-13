@@ -18,7 +18,8 @@ from agentic.core import AgentConfig, AgentStatus, ProcessingMode
 from agentic.events import (
     ToolStartEvent,
     ToolEndEvent,
-    StepCompleteEvent
+    StepCompleteEvent,
+    ErrorEvent
 )
 
 
@@ -348,6 +349,355 @@ class TestAgentConfigOptions:
 
         # Iteration should not change
         assert context_manager.get_iteration() == initial_iter
+
+
+class TestAgentConcurrentToolExecution:
+    """Tests for concurrent tool execution feature."""
+
+    @pytest.mark.asyncio
+    async def test_concurrent_tool_execution_enabled(self, agent, agent_runner, mock_llm_provider, tool_registry):
+        """Test that tools execute concurrently when enabled.
+
+        When concurrent_tool_execution is True, multiple tools should
+        execute in parallel during streaming, not sequentially.
+        """
+        config = agent.get_config()
+        config.concurrent_tool_execution = True
+        agent.set_config(config)
+
+        # Response with 2 tool calls
+        mock_llm_provider.set_response(
+            '<tool>{"name": "echo", "arguments": {"message": "1"}}</tool>'
+            '<tool>{"name": "echo", "arguments": {"message": "2"}}</tool>'
+        )
+
+        # Use step_stream to test concurrent execution
+        tool_events = []
+        final_result = None
+        async for event in agent_runner.step_stream():
+            if isinstance(event, (ToolStartEvent, ToolEndEvent)):
+                tool_events.append(event)
+            if isinstance(event, StepCompleteEvent):
+                final_result = event.result
+
+        assert final_result is not None
+        assert len(final_result.tool_results) == 2
+        assert all(tr.success for tr in final_result.tool_results)
+
+    @pytest.mark.asyncio
+    async def test_concurrent_tool_error_handling(self, agent, agent_runner, mock_llm_provider, tool_registry):
+        """Test that error in one tool doesn't block others in concurrent mode.
+
+        When one tool fails, other concurrent tools should still complete.
+        """
+        # Register a tool that fails
+        def error_func(inputs):
+            raise ValueError("Tool failed")
+
+        from agentic.tools import create_tool
+        error_tool = create_tool("error_tool", error_func)
+        tool_registry.register(error_tool)
+
+        config = agent.get_config()
+        config.concurrent_tool_execution = True
+        config.tools_allowed = ["echo", "error_tool"]
+        agent.set_config(config)
+
+        # Call both tools: one succeeds, one fails
+        mock_llm_provider.set_response(
+            '<tool>{"name": "echo", "arguments": {"message": "success"}}</tool>'
+            '<tool>{"name": "error_tool", "arguments": {}}</tool>'
+        )
+
+        final_result = None
+        async for event in agent_runner.step_stream():
+            if isinstance(event, StepCompleteEvent):
+                final_result = event.result
+
+        assert final_result is not None
+        assert len(final_result.tool_results) == 2
+
+        # One should succeed, one should fail
+        success_count = sum(1 for tr in final_result.tool_results if tr.success)
+        failure_count = sum(1 for tr in final_result.tool_results if not tr.success)
+        assert success_count == 1
+        assert failure_count == 1
+
+    @pytest.mark.asyncio
+    async def test_concurrent_event_ordering(self, agent, agent_runner, mock_llm_provider):
+        """Test that events from concurrent tools are properly emitted.
+
+        Even with concurrent execution, tool events should be properly
+        emitted and ordered.
+        """
+        config = agent.get_config()
+        config.concurrent_tool_execution = True
+        agent.set_config(config)
+
+        mock_llm_provider.set_response(
+            '<tool>{"name": "echo", "arguments": {"message": "1"}}</tool>'
+            '<tool>{"name": "calculator", "arguments": {"a": 1, "b": 2, "operation": "add"}}</tool>'
+        )
+
+        tool_start_events = []
+        tool_end_events = []
+        async for event in agent_runner.step_stream():
+            if isinstance(event, ToolStartEvent):
+                tool_start_events.append(event)
+            elif isinstance(event, ToolEndEvent):
+                tool_end_events.append(event)
+
+        # Should have start and end events for both tools
+        assert len(tool_start_events) == 2
+        assert len(tool_end_events) == 2
+
+
+class TestAgentOnToolDetectedCallback:
+    """Tests for on_tool_detected callback feature."""
+
+    @pytest.mark.asyncio
+    async def test_on_tool_detected_callback_allow(self, agent, agent_runner, mock_llm_provider):
+        """Test callback allowing tool execution (returns True).
+
+        When the callback returns True, the tool should execute normally.
+        """
+        calls = []
+
+        def callback(tool_call):
+            calls.append(tool_call.name)
+            return True  # Allow execution
+
+        config = agent.get_config()
+        config.on_tool_detected = callback
+        agent.set_config(config)
+
+        mock_llm_provider.set_response('<tool>{"name": "echo", "arguments": {"message": "test"}}</tool>')
+
+        final_result = None
+        async for event in agent_runner.step_stream():
+            if isinstance(event, StepCompleteEvent):
+                final_result = event.result
+
+        # Callback should have been called
+        assert "echo" in calls
+
+        # Tool should have executed
+        assert final_result.status == AgentStatus.TOOL_EXECUTED
+        assert len(final_result.tool_results) == 1
+        assert final_result.tool_results[0].success is True
+
+    @pytest.mark.asyncio
+    async def test_on_tool_detected_callback_reject(self, agent, agent_runner, mock_llm_provider):
+        """Test callback rejecting tool execution (returns False).
+
+        When the callback returns False, the tool should NOT execute.
+        """
+        calls = []
+
+        def callback(tool_call):
+            calls.append(tool_call.name)
+            return False  # Reject execution
+
+        config = agent.get_config()
+        config.on_tool_detected = callback
+        agent.set_config(config)
+
+        mock_llm_provider.set_response('<tool>{"name": "echo", "arguments": {"message": "test"}}</tool>')
+
+        final_result = None
+        async for event in agent_runner.step_stream():
+            if isinstance(event, StepCompleteEvent):
+                final_result = event.result
+
+        # Callback should have been called
+        assert "echo" in calls
+
+        # Tool should NOT have executed
+        assert len(final_result.tool_results) == 0
+
+    @pytest.mark.asyncio
+    async def test_on_tool_detected_callback_exception(self, agent, agent_runner, mock_llm_provider):
+        """Test callback exception handling.
+
+        When the callback raises an exception, it should be caught and
+        the tool should not execute.
+        """
+        def callback(tool_call):
+            raise RuntimeError("Callback error")
+
+        config = agent.get_config()
+        config.on_tool_detected = callback
+        agent.set_config(config)
+
+        mock_llm_provider.set_response('<tool>{"name": "echo", "arguments": {"message": "test"}}</tool>')
+
+        error_events = []
+        final_result = None
+        async for event in agent_runner.step_stream():
+            if isinstance(event, ErrorEvent):
+                error_events.append(event)
+            if isinstance(event, StepCompleteEvent):
+                final_result = event.result
+
+        # Should have error event from callback
+        assert len(error_events) > 0
+        assert any("callback failed" in e.error_message for e in error_events)
+
+        # Tool should NOT have executed due to callback error
+        assert len(final_result.tool_results) == 0
+
+    @pytest.mark.asyncio
+    async def test_on_tool_detected_callback_with_concurrent_execution(self, agent, agent_runner, mock_llm_provider):
+        """Test callback works with concurrent tool execution.
+
+        The callback should be invoked for each tool in concurrent mode.
+        """
+        calls = []
+
+        def callback(tool_call):
+            calls.append(tool_call.name)
+            # Allow echo, reject calculator
+            return tool_call.name == "echo"
+
+        config = agent.get_config()
+        config.on_tool_detected = callback
+        config.concurrent_tool_execution = True
+        agent.set_config(config)
+
+        mock_llm_provider.set_response(
+            '<tool>{"name": "echo", "arguments": {"message": "1"}}</tool>'
+            '<tool>{"name": "calculator", "arguments": {"a": 1, "b": 2, "operation": "add"}}</tool>'
+        )
+
+        final_result = None
+        async for event in agent_runner.step_stream():
+            if isinstance(event, StepCompleteEvent):
+                final_result = event.result
+
+        # Both tools should have triggered callback
+        assert "echo" in calls
+        assert "calculator" in calls
+
+        # Only echo should have executed
+        assert len(final_result.tool_results) == 1
+        assert final_result.tool_results[0].name == "echo"
+
+
+class TestAgentOutputMapping:
+    """Tests for output mapping operations."""
+
+    def test_output_mapping_append_version(self, agent, agent_runner, mock_llm_provider, context_manager):
+        """Test append_version output mapping operation.
+
+        append_version should append new output to existing context value
+        with a newline separator.
+        """
+        config = agent.get_config()
+        config.output_mapping = [("conversation", "append_version")]
+        agent.set_config(config)
+
+        # First step
+        mock_llm_provider.set_response("First message")
+        agent_runner.step()
+
+        record = context_manager.get("conversation")
+        assert b"First message" in record.value
+
+        # Second step - should append
+        mock_llm_provider.set_response("Second message")
+        agent_runner.step()
+
+        record = context_manager.get("conversation")
+        content = record.value.decode('utf-8')
+        assert "First message" in content
+        assert "Second message" in content
+        assert "\n\n" in content  # Should have separator
+
+    def test_output_mapping_set_response(self, agent, agent_runner, mock_llm_provider, context_manager):
+        """Test set_response output mapping operation.
+
+        set_response should extract only the content from <response> pattern
+        and store it in context.
+        """
+        config = agent.get_config()
+        config.output_mapping = [("final_answer", "set_response")]
+        agent.set_config(config)
+
+        mock_llm_provider.set_response("<response>The answer is 42</response>")
+        agent_runner.step()
+
+        record = context_manager.get("final_answer")
+        assert record is not None
+        assert record.value == b"The answer is 42"
+
+    def test_output_mapping_set_reasoning(self, agent, agent_runner, mock_llm_provider, context_manager):
+        """Test set_reasoning output mapping operation.
+
+        set_reasoning should extract all reasoning segments and join them
+        with newlines.
+        """
+        config = agent.get_config()
+        config.output_mapping = [("thought_process", "set_reasoning")]
+        agent.set_config(config)
+
+        mock_llm_provider.set_response(
+            "<reasoning>First thought</reasoning>"
+            "Some text"
+            "<reasoning>Second thought</reasoning>"
+        )
+        agent_runner.step()
+
+        record = context_manager.get("thought_process")
+        assert record is not None
+        content = record.value.decode('utf-8')
+        assert "First thought" in content
+        assert "Second thought" in content
+
+    def test_output_mapping_set_tools(self, agent, agent_runner, mock_llm_provider, context_manager):
+        """Test set_tools output mapping operation.
+
+        set_tools should store JSON representation of all tool results.
+        """
+        import json
+
+        config = agent.get_config()
+        config.output_mapping = [("tool_results", "set_tools")]
+        agent.set_config(config)
+
+        mock_llm_provider.set_response('<tool>{"name": "echo", "arguments": {"message": "test"}}</tool>')
+        agent_runner.step()
+
+        record = context_manager.get("tool_results")
+        assert record is not None
+
+        # Parse JSON
+        tools_data = json.loads(record.value.decode('utf-8'))
+        assert len(tools_data) == 1
+        assert tools_data[0]["name"] == "echo"
+        assert tools_data[0]["success"] is True
+
+    def test_output_mapping_multiple_operations(self, agent, agent_runner, mock_llm_provider, context_manager):
+        """Test multiple output mapping operations at once.
+
+        Multiple mappings should all be applied to the same step output.
+        """
+        config = agent.get_config()
+        config.output_mapping = [
+            ("raw", "set_latest"),
+            ("answer", "set_response")
+        ]
+        agent.set_config(config)
+
+        mock_llm_provider.set_response("Thinking... <response>Final answer</response>")
+        agent_runner.step()
+
+        # Both mappings should be applied
+        raw_record = context_manager.get("raw")
+        assert b"Thinking..." in raw_record.value
+        assert b"<response>" in raw_record.value
+
+        answer_record = context_manager.get("answer")
+        assert answer_record.value == b"Final answer"
 
 
 class TestAgentEdgeCases:

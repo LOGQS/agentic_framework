@@ -1,23 +1,16 @@
 # Agentic Framework
 
-A robust, production-ready agentic framework with versioned context, persistent storage, flexible control flows, and **streaming-first architecture** for real-time observability.
+A production-ready agentic framework with versioned context, persistent storage, and streaming-first architecture.
 
 ## Features
 
-- **Streaming-First Architecture (V2)**: Real-time event streams for LLM generation, pattern detection, tool execution, and status updates
-- **Event System**: 13 event types for comprehensive observability (LLMTokenEvent, PatternStartEvent, ToolStartEvent, StatusEvent, etc.)
-- **Incremental Pattern Detection (V2)**: Detect `<tool>`, `<reasoning>`, `<response>` tags as LLM tokens arrive, not just at end
-- **Tool Execution Control (V2)**: User callbacks to approve/reject detected tools before execution
-- **Tool Streaming (V2)**: Tools can stream partial outputs; automatic fallback for non-streaming tools
-- **Batch + Stream Modes**: Use streaming for real-time UIs or batch mode for simple scripts - both produce identical results
-- **Persistent Context with Versioning**: All context data is versioned and stored in RocksDB via rocksdict
-- **Global Iteration Tracking**: Track execution progress across all agent steps
-- **Flexible Pattern Extraction**: Extract tools, reasoning, and responses from LLM output
-- **Multi-Mode Execution**: Run agents, tools, and logic flows in process, thread, or async modes
-- **Pluggable LLM Providers**: Bring your own LLM provider with optional streaming support
-- **Control Flow Logic**: Built-in loops, conditions, and sequence control with streaming events
+- **Streaming-First**: Real-time event streams for LLM generation, pattern detection, and tool execution
+- **13 Event Types**: Comprehensive observability (LLMToken, PatternStart/End, ToolStart/End, Status, Error, etc.)
+- **Persistent Context**: Versioned key-value store in RocksDB with automatic timestamps and iteration tracking
+- **Pattern Extraction**: Batch (`PatternExtractor`) and streaming (`StreamingPatternExtractor`) with incremental detection
+- **Multi-Mode Tools**: Execute tools in PROCESS, THREAD, or ASYNC modes with timeout handling and streaming support
+- **Flexible Logic**: Conditional loops with pattern-based, regex-based, or context-based stop conditions
 - **Type-Safe**: Full type hints throughout the codebase
-- **100% Backward Compatible**: All V1 code works unchanged in V2
 
 ## Installation
 
@@ -25,614 +18,235 @@ A robust, production-ready agentic framework with versioned context, persistent 
 pip install -r requirements.txt
 ```
 
-## Quick Start
+Requires Python 3.9+ and rocksdict >= 0.3.0
 
-### 1. Initialize Storage and Context
+## Quick Start
 
 ```python
 from agentic import (
-    StorageConfig,
-    RocksDBStorage,
-    IterationManager,
-    ContextManager
+    StorageConfig, RocksDBStorage, IterationManager, ContextManager,
+    PatternRegistry, create_default_pattern_set,
+    ToolRegistry, create_tool,
+    AgentConfig, Agent, AgentRunner,
+    ProcessingMode
 )
 
-# Configure storage
-config = StorageConfig(base_dir="./context", db_name_prefix="context")
-
-# Initialize storage (rocksdict)
+# Initialize storage and context
+config = StorageConfig(base_dir="./context", db_name_prefix="my_agent")
 storage = RocksDBStorage(config)
 storage.initialize()
-
-# Create managers
 iteration = IterationManager(storage)
 context = ContextManager(storage, iteration)
-```
 
-### 2. Register Patterns
-
-```python
-from agentic import PatternRegistry, create_default_pattern_set
-
-# Create pattern registry
+# Register patterns
 patterns = PatternRegistry(storage)
+patterns.register_pattern_set(create_default_pattern_set())
 
-# Register default patterns (tool, reasoning, response)
-default_patterns = create_default_pattern_set()
-patterns.register_pattern_set(default_patterns)
-```
-
-### 3. Register Tools
-
-```python
-from agentic import ToolRegistry, create_tool, ProcessingMode
-
-# Create tool registry
+# Register tools
 tools = ToolRegistry()
-
-# Define a simple tool
 def search_web(inputs: dict) -> dict:
-    query = inputs.get("query", "")
-    # Your search implementation here
-    return {"results": f"Search results for: {query}"}
+    return {"results": f"Search results for: {inputs.get('query', '')}"}
 
-# Register tool
-search_tool = create_tool(
+tools.register(create_tool(
     name="search_web",
     func=search_web,
     input_schema={"query": "string"},
-    output_schema={"results": "string"},
     timeout_seconds=30.0,
-    processing_mode=ProcessingMode.THREAD,
-    description="Search the web for information"
-)
-tools.register(search_tool)
-```
+    processing_mode=ProcessingMode.THREAD
+))
 
-### 4. Create and Run Agent (Batch Mode)
+# Create LLM provider
+class MyLLMProvider:
+    def generate(self, prompt: str, max_tokens: int, temperature: float, **kwargs) -> str:
+        # Your LLM API call here
+        pass
 
-```python
-from agentic import (
-    AgentConfig,
-    Agent,
-    AgentRunner,
-    MockLLMProvider  # Replace with real provider
-)
+    async def stream(self, prompt: str, max_tokens: int, temperature: float, **kwargs):
+        # Optional: stream tokens for real-time UIs
+        text = self.generate(prompt, max_tokens, temperature, **kwargs)
+        yield text
 
-# Configure agent
+provider = MyLLMProvider()
+
+# Configure and run agent (batch mode)
 agent_config = AgentConfig(
     agent_id="assistant",
-    provider="mock",
+    provider="custom",
     model="gpt-4",
-    max_tokens=4096,
-    temperature=0.7,
     tools_allowed=["search_web"],
-    input_mapping=[
-        ("conversation_history", "prepend")
-    ],
-    output_mapping=[
-        ("conversation_history", "append_version")
-    ],
-    pattern_set="default",
-    auto_increment_iteration=True
+    input_mapping=[("system_prompt", "prepend")],
+    output_mapping=[("last_output", "set_latest")],
+    pattern_set="default"
 )
 
-# Create provider (replace with real implementation)
-provider = MockLLMProvider(
-    response="<reasoning>Let me search for that.</reasoning>\n<tool>\nname: search_web\narguments:\n{\"query\": \"agentic systems\"}\n</tool>"
-)
-
-# Create agent
 agent = Agent(agent_config, context, patterns, tools, provider)
-
-# Create runner
 runner = AgentRunner(agent)
 
-# Execute single step (batch mode - blocks until complete)
+# Batch execution
 result = runner.step("Tell me about agentic systems")
+print(f"Status: {result.status}, Response: {result.segments.response}")
 
-print(f"Status: {result.status}")
-print(f"Response: {result.segments.response}")
-print(f"Tools called: {len(result.tool_results)}")
-print(f"Iteration: {result.iteration}")
-```
-
-### 4b. Streaming Mode (Real-Time Events)
-
-```python
+# Streaming execution
 import asyncio
-from agentic import (
-    LLMTokenEvent, LLMCompleteEvent, StatusEvent,
-    ToolStartEvent, ToolOutputEvent, ToolEndEvent,
-    StepCompleteEvent, ErrorEvent
-)
+from agentic import LLMTokenEvent, ToolStartEvent, StepCompleteEvent
 
-# Same setup as above, but use step_stream() for real-time events
-async def run_with_streaming():
-    async for event in runner.step_stream("Tell me about agentic systems"):
+async def stream_example():
+    async for event in runner.step_stream("Your prompt"):
         if isinstance(event, LLMTokenEvent):
-            # Stream tokens as they generate
             print(event.token, end="", flush=True)
-
-        elif isinstance(event, LLMCompleteEvent):
-            print("\n[LLM Complete]")
-
-        elif isinstance(event, StatusEvent):
-            print(f"[Status: {event.status.value}] {event.message}")
-
         elif isinstance(event, ToolStartEvent):
-            print(f"\n[Executing Tool: {event.tool_name}]")
-            print(f"Arguments: {event.arguments}")
-
-        elif isinstance(event, ToolOutputEvent):
-            print(f"Tool Output: {event.output}")
-
-        elif isinstance(event, ToolEndEvent):
-            if event.result.success:
-                print(f"[Tool {event.tool_name} completed in {event.result.execution_time:.2f}s]")
-            else:
-                print(f"[Tool {event.tool_name} failed: {event.result.error_message}]")
-
-        elif isinstance(event, ErrorEvent):
-            print(f"[ERROR] {event.error_type}: {event.error_message}")
-
+            print(f"\n[Tool: {event.tool_name}]")
         elif isinstance(event, StepCompleteEvent):
-            result = event.result
-            print(f"\n[Step Complete - Status: {result.status.value}]")
-            return result
+            return event.result
 
-# Run the streaming example
-result = asyncio.run(run_with_streaming())
-```
-
-### 5. Use Logic Flows (Batch Mode)
-
-```python
-from agentic import LogicConfig, LogicCondition, LogicRunner
-
-# Configure logic with stop conditions
-logic_config = LogicConfig(
-    logic_id="main_loop",
-    max_iterations=10,
-    stop_conditions=[
-        LogicCondition(
-            pattern_set="default",
-            pattern_name="response",
-            match_type="contains",
-            target="response"
-        )
-    ],
-    break_on_error=True
-)
-
-# Create logic runner
-logic = LogicRunner(runner, context, patterns, logic_config)
-
-# Run with logic control (batch mode)
-results = logic.run(initial_input="Analyze this problem step by step")
-
-print(f"Completed {len(results)} iterations")
-for i, result in enumerate(results):
-    print(f"Iteration {i}: {result.status}")
-```
-
-### 5b. Logic Flows with Streaming
-
-```python
-# Same logic_config as above, use run_stream() for real-time events
-async def run_logic_with_streaming():
-    async for event in logic.run_stream(initial_input="Analyze this problem step by step"):
-        # Handle all events from agent steps plus logic-level StatusEvents
-        if isinstance(event, StatusEvent):
-            print(f"[Logic: {event.message}]")
-        elif isinstance(event, StepCompleteEvent):
-            print(f"[Iteration {event.result.iteration} complete]")
-        # ... handle other events as needed
-
-asyncio.run(run_logic_with_streaming())
-```
-
-## Streaming Architecture (V2)
-
-### Event Types
-
-The framework emits 13 event types during execution:
-
-| Event | Description | Key Fields |
-|-------|-------------|------------|
-| `LLMTokenEvent` | LLM generates a token | `token: str` |
-| `LLMCompleteEvent` | LLM finishes generation | `full_text: str` |
-| `PatternStartEvent` | Pattern start tag detected (V2) | `pattern_name: str`, `pattern_type: str` |
-| `PatternContentEvent` | Pattern content streaming (V2) | `pattern_name: str`, `content: str`, `is_partial: bool` |
-| `PatternEndEvent` | Pattern end tag detected (V2) | `pattern_name: str`, `full_content: str` |
-| `StatusEvent` | Agent status changes | `status: AgentStatus`, `message: str` |
-| `ToolStartEvent` | Tool execution begins | `tool_name: str`, `arguments: dict` |
-| `ToolOutputEvent` | Tool produces output | `tool_name: str`, `output: Any`, `is_partial: bool` |
-| `ToolEndEvent` | Tool execution completes | `tool_name: str`, `result: ToolResult` |
-| `ContextWriteEvent` | Context updated | `key: str`, `value_preview: str`, `version: int` |
-| `ErrorEvent` | Error occurs | `error_type: str`, `error_message: str`, `partial_data: Any` (V2) |
-| `StepCompleteEvent` | Agent step finishes | `result: AgentStepResult` |
-
-All events inherit from `BaseEvent` with `type: str` and `timestamp: float`.
-
-### Batch vs Streaming
-
-**Batch Mode** (`step()`, `run()`):
-- Blocks until complete
-- Returns final result
-- Simple API for scripts and CLIs
-- Internally wraps streaming and aggregates events
-
-**Streaming Mode** (`step_stream()`, `run_stream()`):
-- Yields events as they occur
-- Real-time progress updates
-- Ideal for UIs and dashboards
-- Produces identical final results to batch mode
-
-### Key Principle
-
-**Batch = Degenerate Case of Streaming**
-
-All batch methods internally call streaming methods and aggregate events. This ensures:
-- Zero code duplication
-- Guaranteed consistency
-- Full backward compatibility
-
-### Enable Incremental Context Writes
-
-```python
-agent_config = AgentConfig(
-    # ... other config ...
-    incremental_context_writes=True  # Emit ContextWriteEvent during streaming
-)
-```
-
-When enabled, context updates happen **during** step execution and emit `ContextWriteEvent`. When disabled (default), context updates happen at the **end** (V1 behavior).
-
-### Incremental Pattern Detection
-
-**New in V2:** Patterns detected as LLM tokens arrive (not just at end):
-
-```python
-# Enable pattern content streaming (optional)
-agent_config = AgentConfig(
-    ...
-    stream_pattern_content=True  # Stream <tool> content before </tool> arrives
-)
-
-# Handle pattern events
-async for event in runner.step_stream("Your prompt"):
-    if isinstance(event, PatternStartEvent):
-        print(f"[Pattern Started: {event.pattern_name}]")
-    elif isinstance(event, PatternContentEvent):
-        # Stream content as it arrives (before end tag)
-        print(event.content, end="", flush=True)
-    elif isinstance(event, PatternEndEvent):
-        print(f"\n[Pattern Complete: {event.pattern_name}]")
-```
-
-**Use Cases:**
-- Display tool arguments as LLM generates them
-- Stream reasoning/response content in real-time
-- Detect patterns mid-generation for early termination
-
-### Tool Execution Control
-
-**New in V2:** Control tool execution with callbacks:
-
-```python
-def approve_tool(tool_call: ToolCall) -> bool:
-    """User callback to approve/reject tools."""
-    # Example: require user confirmation
-    print(f"Tool '{tool_call.name}' detected with args: {tool_call.arguments}")
-    response = input("Execute? (y/n): ")
-    return response.lower() == 'y'
-
-agent_config = AgentConfig(
-    ...
-    on_tool_detected=approve_tool  # None = auto-approve (default)
-)
-
-# Tools now wait for approval before executing
-result = runner.step("Do something with tools")
-```
-
-**Status Semantics:**
-- `TOOL_EXECUTED` - Tools executed successfully (final status)
-- `WAITING_FOR_TOOL` - Tools detected but pending/rejected
-
-### Tool Streaming
-
-**New in V2:** Tools can stream partial outputs:
-
-```python
-# Example: Streaming shell tool
-async def streaming_shell(inputs: dict):
-    """Stream command output line-by-line."""
-    async for line in execute_command_async(inputs["command"]):
-        yield line  # Framework wraps in ToolOutputEvent
-
-tool = create_tool(
-    name="shell",
-    func=streaming_shell,  # Callable with run_stream attribute
-    ...
-)
-
-# Framework automatically uses run_stream() if available,
-# otherwise wraps run() as single output event
-```
-
-### Flexible Condition Evaluation
-
-**New in V2:** Evaluate conditions at different pipeline stages:
-
-```python
-from agentic import LogicCondition, LogicConfig, LogicRunner
-
-logic_config = LogicConfig(
-    logic_id="early_termination",
-    loop_until_conditions=[
-        LogicCondition(
-            pattern_set="default",
-            pattern_name="tool",
-            match_type="contains",
-            target="response",
-            evaluation_point="llm_complete"  # Stop as soon as LLM finishes
-        )
-    ]
-)
-
-# Options: "auto", "llm_complete", "tool_detected", "step_complete", "any_event"
-# "auto" (default) infers from target - context → step_complete, patterns → llm_complete
+asyncio.run(stream_example())
 ```
 
 ## Architecture
 
-### Event Layer (`events.py`) - NEW in V2
+```
+agentic/
+├── core.py       # Enums (ProcessingMode, SegmentType, AgentStatus) & Data classes
+├── events.py     # 13 event types (LLMToken, PatternStart/End, ToolStart/End, etc.)
+├── storage.py    # RocksDBStorage with automatic path resolution and DB identification
+├── context.py    # IterationManager & ContextManager with versioning and history
+├── patterns.py   # PatternExtractor (batch) & StreamingPatternExtractor (incremental)
+├── tools.py      # Tool execution with multi-mode support, timeouts, and streaming
+├── agent.py      # Agent & AgentRunner with dual-mode execution (step/step_stream)
+└── logic.py      # LogicRunner for conditional loops with flexible evaluation points
+```
 
-- **13 event types** for comprehensive observability (LLM, Pattern, Tool, Status, Context, Error, Step)
-- Real-time streaming of LLM tokens, tool execution, status changes
-- Strongly-typed event classes with timestamps
-- Used internally by all streaming operations
+### Key Components
 
-### Storage Layer (`storage.py`)
+**Storage** (`storage.py`):
+- RocksDB backend via `rocksdict`
+- Automatic DB ID generation: `agentic_<hash>_<timestamp>_<uuid>`
+- CRUD operations: `get()`, `put()`, `delete()`, `iterate()`
 
-- RocksDB-based persistent storage via rocksdict
-- Automatic path resolution with collision avoidance
-- Database identification and validation
+**Context** (`context.py`):
+- `IterationManager`: Global iteration counter with `get()`, `next()`
+- `ContextManager`: Versioned store with `set()`, `get()`, `delete()`, `list_keys()`, `get_history()`
+- `ContextRecord`: `{value, iteration, timestamp, version}`
+- Tombstone deletion for soft deletes
 
-### Context Layer (`context.py`)
+**Patterns** (`patterns.py`):
+- `Pattern`: `{name, start_tag, end_tag, segment_type, greedy}`
+- `PatternRegistry`: Persistent pattern set storage
+- `PatternExtractor`: Batch extraction
+- `StreamingPatternExtractor`: Incremental token processing with malformed pattern handling
 
-- Versioned key-value store
-- Global iteration tracking
-- Automatic timestamping
-- History retrieval
-- Optional incremental writes during streaming
+**Tools** (`tools.py`):
+- `Tool`: Executable with `run()` (batch) and `run_stream()` (streaming)
+- `ToolRegistry`: `register()`, `get()`, `exists()`, `list()`, `unregister()`
+- Multi-mode execution: PROCESS, THREAD, ASYNC
+- Automatic timeout enforcement
 
-### Pattern Layer (`patterns.py`)
+**Agent** (`agent.py`):
+- `Agent`: Container for config, context, patterns, tools, provider
+- `AgentRunner`: `step()` (batch) and `step_stream()` (streaming)
+- `AgentConfig`: Configuration with 15+ options including `incremental_context_writes`, `stream_pattern_content`, `on_tool_detected`, `concurrent_tool_execution`
 
-- Pattern-based text extraction
-- Support for tool calls, reasoning, and responses
-- Customizable pattern sets
-- Registry for pattern management
+**Logic** (`logic.py`):
+- `LogicRunner`: Conditional loops with `run()` (batch) and `run_stream()` (streaming)
+- `LogicCondition`: Pattern/regex/context-based with flexible evaluation points
+- Helpers: `loop_n_times()`, `loop_until_pattern()`, `loop_until_regex()`, `stop_on_error()`
 
-### Tool Layer (`tools.py`)
-
-- Multi-mode execution (process, thread, async)
-- Timeout handling
-- Input/output schema validation
-- Centralized tool registry
-- Streaming-ready architecture (future: tools can stream partial outputs)
-
-### Agent Layer (`agent.py`)
-
-- Pluggable LLM provider interface with streaming support
-- **Dual-mode execution**: `step()` (batch) and `step_stream()` (streaming)
-- Configurable input/output mappings
-- Automatic pattern extraction
-- Tool execution orchestration with real-time events
-
-### Logic Layer (`logic.py`)
-
-- Conditional control flows with streaming events
-- **Dual-mode execution**: `run()` (batch) and `run_stream()` (streaming)
-- Loop constructs with real-time progress
-- Pattern-based stopping conditions
-- Context-aware decisions
-- Multi-mode execution (process, thread, async)
+**Events** (`events.py`):
+13 event types: `LLMTokenEvent`, `LLMCompleteEvent`, `PatternStartEvent`, `PatternContentEvent`, `PatternEndEvent`, `StatusEvent`, `ToolStartEvent`, `ToolOutputEvent`, `ToolEndEvent`, `ContextWriteEvent`, `ErrorEvent`, `StepCompleteEvent`
 
 ## Advanced Usage
-
-### Custom Pattern Sets
-
-```python
-from agentic import Pattern, PatternSet, SegmentType
-
-custom_patterns = PatternSet(
-    name="custom",
-    patterns=[
-        Pattern(
-            name="thought",
-            start_tag="<thought>",
-            end_tag="</thought>",
-            segment_type=SegmentType.REASONING,
-            greedy=False
-        ),
-        Pattern(
-            name="action",
-            start_tag="<action>",
-            end_tag="</action>",
-            segment_type=SegmentType.TOOL,
-            greedy=False
-        )
-    ],
-    default_response_behavior="all_remaining"
-)
-
-patterns.register_pattern_set(custom_patterns)
-```
 
 ### Context Versioning
 
 ```python
-# Set context value (creates new version)
-context.set("user_profile", b'{"name": "Alice", "age": 30}')
+# Set creates new version
+context.set("key", b"value1")  # version 1
+context.set("key", b"value2")  # version 2
 
-# Get latest version
-latest = context.get("user_profile")
-print(f"Version: {latest.version}, Iteration: {latest.iteration}")
+# Get latest or specific version
+latest = context.get("key")
+v1 = context.get("key", version=1)
 
-# Get specific version
-old_version = context.get("user_profile", version=1)
+# History
+history = context.get_history("key", max_versions=10)
 
-# Get version history
-history = context.get_history("user_profile", max_versions=5)
-for record in history:
-    print(f"v{record.version} at iteration {record.iteration}")
+# Delete (creates tombstone)
+context.delete("key")
+assert context.get("key") is None
 ```
 
-### Custom LLM Provider
+### Custom Patterns
 
 ```python
-from typing import AsyncIterator
-from agentic import LLMProvider
+from agentic import Pattern, PatternSet, SegmentType
 
-class MyLLMProvider:
-    """
-    Custom LLM provider with streaming support.
-
-    The generate() method is required. The stream() method is optional -
-    if not implemented, framework will simulate streaming using generate().
-    """
-
-    def __init__(self, api_key: str):
-        self.api_key = api_key
-        # Initialize your LLM client here
-
-    def generate(self, prompt: str, max_tokens: int, temperature: float, **kwargs) -> str:
-        """Batch generation (required)."""
-        # Call your LLM API
-        # Return the complete generated text
-        pass
-
-    async def stream(self, prompt: str, max_tokens: int, temperature: float, **kwargs) -> AsyncIterator[str]:
-        """
-        Stream tokens (optional but recommended).
-
-        Yield tokens as they're generated for real-time UIs.
-        """
-        # Example with OpenAI-style API:
-        # async for chunk in your_api.stream(prompt, max_tokens, temperature):
-        #     if chunk.choices[0].delta.content:
-        #         yield chunk.choices[0].delta.content
-
-        # If streaming not supported, fall back to generate():
-        text = self.generate(prompt, max_tokens, temperature, **kwargs)
-        yield text
-
-provider = MyLLMProvider(api_key="your-api-key")
-agent = Agent(agent_config, context, patterns, tools, provider)
+custom = PatternSet(
+    name="custom",
+    patterns=[
+        Pattern("thought", "<thought>", "</thought>", SegmentType.REASONING, greedy=False),
+        Pattern("action", "<action>", "</action>", SegmentType.TOOL, greedy=False)
+    ],
+    default_response_behavior="all_remaining"
+)
+patterns.register_pattern_set(custom)
 ```
 
-### Convenience Logic Functions
+### Logic Control
 
 ```python
-from agentic import loop_n_times, loop_until_pattern, loop_until_regex
+from agentic import LogicConfig, LogicCondition, LogicRunner
 
-# Loop exactly 5 times
-logic1 = loop_n_times(runner, context, patterns, n=5)
-results1 = logic1.run("Start task")
-
-# Loop until pattern found
-logic2 = loop_until_pattern(
-    runner, context, patterns,
-    pattern_set="default",
-    pattern_name="response",
-    target="response",
-    max_iterations=10
+logic_config = LogicConfig(
+    logic_id="main_loop",
+    max_iterations=10,
+    stop_conditions=[
+        LogicCondition("default", "DONE", "regex", "response", "llm_complete")
+    ],
+    break_on_error=True
 )
-results2 = logic2.run("Keep working until done")
 
-# Loop until regex matches
-logic3 = loop_until_regex(
-    runner, context, patterns,
-    regex_pattern=r"COMPLETE|DONE|FINISHED",
-    target="response",
-    max_iterations=20
-)
-results3 = logic3.run("Process this task")
+logic = LogicRunner(runner, context, patterns, logic_config)
+results = logic.run("Analyze this problem")
+
+# Streaming
+async for event in logic.run_stream("Analyze this problem"):
+    if isinstance(event, StepCompleteEvent):
+        print(f"Iteration {event.result.iteration} complete")
 ```
+
+### Tool Approval Callback
+
+```python
+def approve_tool(tool_call) -> bool:
+    print(f"Tool '{tool_call.name}' detected")
+    return input("Execute? (y/n): ").lower() == 'y'
+
+agent_config = AgentConfig(
+    ...
+    on_tool_detected=approve_tool  # None = auto-approve
+)
+```
+
+## Testing
+
+```bash
+pytest                    # Run all tests
+pytest --cov=agentic      # With coverage
+pytest -v                 # Verbose
+pytest -m asyncio         # Async tests only
+```
+
+325+ tests with >90% coverage. See `tests/README.md` for details.
 
 ## Design Principles
 
-1. **Streaming First**: All operations support real-time event streams with batch as a convenience wrapper
-2. **Single Responsibility**: Each module has a clear, focused purpose
-3. **Persistence First**: All state is persisted to RocksDB via rocksdict
-4. **Versioning by Default**: Context changes are automatically versioned
-5. **Type Safety**: Comprehensive type hints throughout
-6. **Flexibility**: Pluggable providers, patterns, and tools with multi-mode execution
-7. **Minimal Dependencies**: Only rocksdict required for core functionality
-8. **Backward Compatibility**: V1 code works unchanged in V2
-
-## Project Structure
-
-```
-agentic/
-├── __init__.py          # Public API exports
-├── core.py              # Core types and enums
-├── events.py            # Event system (V2)
-├── storage.py           # RocksDB storage layer
-├── context.py           # Context management with versioning
-├── patterns.py          # Pattern extraction
-├── tools.py             # Tool execution
-├── agent.py             # Agent abstraction with streaming
-└── logic.py             # Control flow logic with streaming
-```
-
-## V2 Migration Guide
-
-**Good News**: No migration required! All V1 code works unchanged in V2.
-
-**To Use Streaming** (optional):
-
-```python
-# V1 code (still works)
-result = runner.step(input)
-results = logic.run(initial_input)
-
-# V2 streaming (opt-in)
-async for event in runner.step_stream(input):
-    handle_event(event)
-
-async for event in logic.run_stream(initial_input):
-    handle_event(event)
-```
-
-**Provider Updates** (optional):
-
-V1 providers (only `generate()`) work unchanged. To enable true streaming:
-
-```python
-class MyProvider:
-    def generate(self, prompt, max_tokens, temperature, **kwargs) -> str:
-        # Required - works in both V1 and V2
-        pass
-
-    async def stream(self, prompt, max_tokens, temperature, **kwargs) -> AsyncIterator[str]:
-        # Optional - enables true token streaming in V2
-        pass
-```
-
-For full V2 features and architectural details, see `docs/specification_v2.md`.
+1. **Streaming First**: Batch mode wraps streaming for consistency
+2. **Persistence First**: All state in RocksDB
+3. **Versioning by Default**: Context auto-versioned
+4. **Type Safety**: Full type hints
+5. **Single Responsibility**: Focused modules
+6. **Minimal Dependencies**: Only rocksdict required
 
 ## License
 
-MIT License
-
-## Contributing
-
-Contributions welcome! Please ensure:
-- Type hints on all functions
-- Docstrings for public APIs
-- No unnecessary dependencies
-- Tests for new features
+MIT

@@ -456,6 +456,151 @@ class TestContextRecord:
         assert r1 != r3
 
 
+class TestContextUpdate:
+    """Tests for update() method."""
+
+    def test_update_preserves_version_number(self, context_manager):
+        """Test that update() doesn't create new version.
+
+        The update() method is used for streaming/incremental writes within
+        the same logical operation. Unlike set() which creates new versions,
+        update() overwrites the current version.
+        """
+        r1 = context_manager.set("key", b"initial")
+        assert r1.version == 1
+
+        r2 = context_manager.update("key", b"updated")
+        assert r2.version == 1  # Same version, not incremented!
+
+        # Verify the value was actually updated
+        record = context_manager.get("key")
+        assert record.value == b"updated"
+        assert record.version == 1
+
+    def test_update_creates_version_one_if_not_exists(self, context_manager):
+        """Test update() on non-existent key creates version 1.
+
+        When update() is called on a key that doesn't exist yet,
+        it should create version 1 (same as set() would).
+        """
+        r1 = context_manager.update("new_key", b"value")
+        assert r1.version == 1
+
+        record = context_manager.get("new_key")
+        assert record is not None
+        assert record.value == b"value"
+        assert record.version == 1
+
+    def test_update_iteration_parameter(self, context_manager):
+        """Test update() with explicit iteration parameter.
+
+        The iteration parameter allows setting a specific iteration number,
+        useful when multiple agents share the same iteration manager.
+        """
+        r1 = context_manager.update("key", b"value", iteration=5)
+        assert r1.iteration == 5
+
+        record = context_manager.get("key")
+        assert record.iteration == 5
+
+    def test_update_overwrites_existing_version(self, context_manager):
+        """Test that update() overwrites the existing version data.
+
+        After set() creates version 1, update() should overwrite version 1
+        completely, not create version 2.
+        """
+        context_manager.set("key", b"v1")  # version 1
+        context_manager.update("key", b"v1_updated")  # still version 1
+
+        record = context_manager.get("key")
+        assert record.version == 1
+        assert record.value == b"v1_updated"
+
+        # History should still show only one version
+        history = context_manager.get_history("key")
+        assert len(history) == 1
+        assert history[0].value == b"v1_updated"
+
+    def test_update_after_multiple_versions(self, context_manager):
+        """Test update() after multiple set() operations.
+
+        After creating multiple versions with set(), update() should
+        overwrite only the latest version without creating a new one.
+        """
+        context_manager.set("key", b"v1")  # version 1
+        context_manager.set("key", b"v2")  # version 2
+        context_manager.set("key", b"v3")  # version 3
+
+        # Update the latest (version 3)
+        r = context_manager.update("key", b"v3_updated")
+        assert r.version == 3
+
+        # Latest should be updated
+        latest = context_manager.get("key")
+        assert latest.version == 3
+        assert latest.value == b"v3_updated"
+
+        # Older versions should be unchanged
+        v1 = context_manager.get("key", version=1)
+        assert v1.value == b"v1"
+        v2 = context_manager.get("key", version=2)
+        assert v2.value == b"v2"
+
+    def test_update_updates_timestamp(self, context_manager):
+        """Test that update() updates the timestamp.
+
+        Even though update() preserves the version number,
+        it should update the timestamp to reflect when the update occurred.
+        """
+        import time
+
+        r1 = context_manager.set("key", b"initial")
+        ts1 = r1.timestamp
+
+        time.sleep(0.01)  # Small delay
+
+        r2 = context_manager.update("key", b"updated")
+        ts2 = r2.timestamp
+
+        assert ts2 > ts1  # Timestamp should be newer
+        assert r2.version == r1.version  # But version stays same
+
+    def test_update_with_current_iteration(self, context_manager):
+        """Test that update() uses current iteration when not specified.
+
+        If iteration parameter is not provided, update() should use
+        the current global iteration from the iteration manager.
+        """
+        context_manager.next_iteration()
+        context_manager.next_iteration()
+        current_iter = context_manager.get_iteration()
+
+        r = context_manager.update("key", b"value")
+        assert r.iteration == current_iter
+
+    def test_update_multiple_times(self, context_manager):
+        """Test calling update() multiple times in succession.
+
+        Multiple update() calls should all overwrite the same version.
+        """
+        context_manager.set("key", b"v1")  # version 1
+
+        context_manager.update("key", b"update1")
+        record = context_manager.get("key")
+        assert record.version == 1
+        assert record.value == b"update1"
+
+        context_manager.update("key", b"update2")
+        record = context_manager.get("key")
+        assert record.version == 1
+        assert record.value == b"update2"
+
+        context_manager.update("key", b"update3")
+        record = context_manager.get("key")
+        assert record.version == 1
+        assert record.value == b"update3"
+
+
 class TestContextEdgeCases:
     """Tests for edge cases and boundary conditions."""
 
