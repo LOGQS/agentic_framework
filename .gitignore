@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+
+# RocksDB storage
+context/
+
+# Virtual environments
+.venv/
+
+# Environment variables
+.env
+
+# Specification docs
+docs/
+
+# Claude Code
+.claude/
