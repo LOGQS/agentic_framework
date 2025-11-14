@@ -3,6 +3,7 @@ Logic flows for controlling agent execution across iterations.
 """
 from dataclasses import dataclass, field
 import re
+import fnmatch
 from typing import AsyncIterator
 import asyncio
 
@@ -13,13 +14,13 @@ from .core import AgentStepResult, AgentStatus, ProcessingMode, output_to_string
 from .events import (
     AgentEvent, StatusEvent, StepCompleteEvent,
     LLMCompleteEvent, LLMTokenEvent, PatternEndEvent, ToolEndEvent,
-    PatternStartEvent, ToolStartEvent, ToolOutputEvent, ContextWriteEvent, ErrorEvent, PatternContentEvent
+    PatternStartEvent, ToolStartEvent, ToolOutputEvent, ContextWriteEvent, ErrorEvent, PatternContentEvent,
+    ContextHealthEvent
 )
 
 
 @dataclass
 class LogicCondition:
-    """Condition for controlling logic flow."""
     pattern_set: str
     pattern_name: str
     match_type: str  # "contains" | "equals" | "regex"
@@ -29,14 +30,24 @@ class LogicCondition:
 
 
 @dataclass
+class ContextHealthCheck:
+    check_type: str  # "size" | "version_count" | "growth_rate"
+    key_pattern: str  # Glob pattern: "llm_output:*", "tool_result:*", "*" for all
+    threshold: float
+    action: str = "warn"  # "warn" | "stop"
+    evaluation_point: str = "step_complete"
+    max_versions_limit: int = 10000  # Safety limit for version_count checks to prevent memory exhaustion
+
+
+@dataclass
 class LogicConfig:
-    """Configuration for logic execution."""
     logic_id: str
     max_iterations: int | None = None
     stop_conditions: list[LogicCondition] = field(default_factory=list)
     loop_until_conditions: list[LogicCondition] = field(default_factory=list)
     break_on_error: bool = True
     processing_mode: ProcessingMode | None = ProcessingMode.THREAD  # Default to THREAD if not specified
+    context_health_checks: list[ContextHealthCheck] = field(default_factory=list)
 
 
 class LogicRunner:
@@ -79,7 +90,6 @@ class LogicRunner:
         initial_input: str | None,
         processing_mode: ProcessingMode | None
     ) -> list[AgentStepResult]:
-        """Helper to collect streaming results."""
         results = []
         async for event in self.run_stream(initial_input, processing_mode):
             if isinstance(event, StepCompleteEvent):
@@ -265,6 +275,16 @@ class LogicRunner:
                         yield StatusEvent(AgentStatus.ERROR, "Breaking on error")
                         return
 
+                    # Check context health at step_complete
+                    for health_check in self._config.context_health_checks:
+                        if health_check.evaluation_point == event_type:
+                            health_events = self._check_context_health(health_check)
+                            for health_event in health_events:
+                                yield health_event
+                                if health_check.action == "stop":
+                                    yield StatusEvent(AgentStatus.ERROR, f"Stopping due to health check: {health_check.check_type}")
+                                    return
+
                 if should_check:
                     if event_type == "step_complete" and current_step_result:
                         should_stop, loop_satisfied = self._check_conditions_for_event(
@@ -300,7 +320,6 @@ class LogicRunner:
                     current_step_result = None
 
     def _run_impl(self, initial_input: str | None = None) -> list[AgentStepResult]:
-        """Internal synchronous implementation of logic loop."""
         results: list[AgentStepResult] = []
         iteration_count = 0
         current_input = initial_input
@@ -357,7 +376,6 @@ class LogicRunner:
         return results
 
     def _evaluate_condition(self, condition: LogicCondition, result: AgentStepResult) -> bool:
-        """Evaluate condition against result."""
         if condition.match_type == "contains":
             return self._check_pattern_in_result(condition, result)
 
@@ -430,7 +448,6 @@ class LogicRunner:
         return None
 
     def _get_target_text(self, target: str, result: AgentStepResult) -> str | None:
-        """Extract target text from result based on target specification."""
         if target == "response":
             return result.segments.response
 
@@ -458,14 +475,12 @@ class LogicRunner:
         return None
 
     def _has_conditions_for_event(self, event_type: str) -> bool:
-        """Check if any conditions should be evaluated for this event type."""
         for condition in self._config.stop_conditions + self._config.loop_until_conditions:
             if self._should_evaluate_at_event(condition, event_type):
                 return True
         return False
 
     def _should_evaluate_at_event(self, condition: LogicCondition, event_type: str) -> bool:
-        """Determine if condition should be evaluated at this event type."""
         eval_point = condition.evaluation_point
 
         if eval_point == "any_event":
@@ -542,7 +557,6 @@ class LogicRunner:
         return should_stop, loop_satisfied
 
     def _evaluate_condition_on_context(self, condition: LogicCondition, context: dict) -> bool:
-        """Evaluate condition using partial context dict."""
         if condition.match_type == "regex":
             target_text = None
 
@@ -631,11 +645,58 @@ class LogicRunner:
 
         return False
 
+    def _check_context_health(self, check: ContextHealthCheck) -> list[ContextHealthEvent]:
+        """
+        Check context health based on configuration.
 
-# Convenience functions for common logic patterns
+        Args:
+            check: Health check configuration
+
+        Returns:
+            List of ContextHealthEvent for any violations found
+        """
+        events = []
+
+        if check.key_pattern == "*":
+            matching_keys = self._context.list_keys()
+        elif check.key_pattern.endswith("*") and "*" not in check.key_pattern[:-1]:
+            prefix = check.key_pattern[:-1]
+            matching_keys = self._context.list_keys(prefix=prefix if prefix else None)
+        else:
+            all_keys = self._context.list_keys()
+            matching_keys = [k for k in all_keys if fnmatch.fnmatch(k, check.key_pattern)]
+
+        for key in matching_keys:
+            if check.check_type == "size":
+                record = self._context.get(key)
+                if record and len(record.value) > check.threshold:
+                    events.append(ContextHealthEvent(
+                        check_type="size",
+                        key=key,
+                        current_value=float(len(record.value)),
+                        threshold=check.threshold,
+                        recommended_action=check.action
+                    ))
+
+            elif check.check_type == "version_count":
+                max_versions_to_fetch = min(
+                    int(check.threshold) + 1,
+                    check.max_versions_limit
+                )
+                history = self._context.get_history(key, max_versions=max_versions_to_fetch)
+                if len(history) > check.threshold:
+                    events.append(ContextHealthEvent(
+                        check_type="version_count",
+                        key=key,
+                        current_value=float(len(history)),
+                        threshold=check.threshold,
+                        recommended_action=check.action
+                    ))
+
+        return events
+
 
 def loop_n_times(agent_runner: AgentRunner, context: ContextManager, patterns: PatternRegistry, n: int) -> LogicRunner:
-    """Create a LogicRunner that loops N times."""
     config = LogicConfig(
         logic_id=f"loop_{n}",
         max_iterations=n
@@ -652,7 +713,6 @@ def loop_until_pattern(
     target: str = "response",
     max_iterations: int | None = None
 ) -> LogicRunner:
-    """Create a LogicRunner that loops until a pattern is found."""
     config = LogicConfig(
         logic_id=f"loop_until_{pattern_name}",
         max_iterations=max_iterations,
@@ -676,7 +736,6 @@ def loop_until_regex(
     target: str = "response",
     max_iterations: int | None = None
 ) -> LogicRunner:
-    """Create a LogicRunner that loops until a regex matches."""
     config = LogicConfig(
         logic_id=f"loop_until_regex",
         max_iterations=max_iterations,
@@ -698,7 +757,6 @@ def stop_on_error(
     patterns: PatternRegistry,
     max_iterations: int | None = None
 ) -> LogicRunner:
-    """Create a LogicRunner that stops on first error."""
     config = LogicConfig(
         logic_id="stop_on_error",
         max_iterations=max_iterations,

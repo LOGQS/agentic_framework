@@ -459,3 +459,472 @@ class TestLogicEdgeCases:
         results = runner.run()
         # Should stop on first match
         assert len(results) == 1
+
+
+class TestContextHealthCheck:
+    """Tests for context health monitoring."""
+
+    def test_context_health_check_creation(self):
+        """Test creating ContextHealthCheck."""
+        from agentic.logic import ContextHealthCheck
+
+        check = ContextHealthCheck(
+            check_type="size",
+            key_pattern="llm_output:*",
+            threshold=1000.0,
+            action="warn"
+        )
+        assert check.check_type == "size"
+        assert check.key_pattern == "llm_output:*"
+        assert check.threshold == 1000.0
+        assert check.action == "warn"
+        assert check.evaluation_point == "step_complete"
+
+    def test_context_health_check_size_threshold(self, agent_runner, context_manager, pattern_registry, mock_llm_provider):
+        """Test health check detects when context size exceeds threshold."""
+        from agentic.logic import ContextHealthCheck, LogicConfig
+        from agentic.events import ContextHealthEvent
+
+        # Set a large value in context
+        large_value = b"x" * 2000
+        context_manager.set("test_key", large_value)
+
+        # Create health check for size
+        health_check = ContextHealthCheck(
+            check_type="size",
+            key_pattern="test_*",
+            threshold=1000.0,
+            action="warn"
+        )
+
+        config = LogicConfig(
+            logic_id="health_test",
+            max_iterations=1,
+            context_health_checks=[health_check]
+        )
+        runner = LogicRunner(agent_runner, context_manager, pattern_registry, config)
+
+        # Collect events
+        events = []
+        import asyncio
+        async def collect_events():
+            async for event in runner.run_stream():
+                events.append(event)
+
+        asyncio.run(collect_events())
+
+        # Should have ContextHealthEvent
+        health_events = [e for e in events if isinstance(e, ContextHealthEvent)]
+        assert len(health_events) > 0
+        assert health_events[0].check_type == "size"
+        assert health_events[0].current_value > 1000.0
+        assert health_events[0].threshold == 1000.0
+
+    def test_context_health_check_version_count(self, agent_runner, context_manager, pattern_registry, mock_llm_provider):
+        """Test health check detects when version count exceeds threshold."""
+        from agentic.logic import ContextHealthCheck, LogicConfig
+        from agentic.events import ContextHealthEvent
+
+        # Create multiple versions
+        for i in range(5):
+            context_manager.set("versioned_key", f"value_{i}".encode())
+
+        health_check = ContextHealthCheck(
+            check_type="version_count",
+            key_pattern="versioned_*",
+            threshold=3.0,
+            action="warn"
+        )
+
+        config = LogicConfig(
+            logic_id="version_health",
+            max_iterations=1,
+            context_health_checks=[health_check]
+        )
+        runner = LogicRunner(agent_runner, context_manager, pattern_registry, config)
+
+        events = []
+        import asyncio
+        async def collect_events():
+            async for event in runner.run_stream():
+                events.append(event)
+
+        asyncio.run(collect_events())
+
+        health_events = [e for e in events if isinstance(e, ContextHealthEvent)]
+        assert len(health_events) > 0
+        assert health_events[0].check_type == "version_count"
+        assert health_events[0].current_value > 3.0
+
+    def test_context_health_check_action_warn(self, agent_runner, context_manager, pattern_registry, mock_llm_provider):
+        """Test health check with 'warn' action continues execution."""
+        from agentic.logic import ContextHealthCheck, LogicConfig
+
+        # Set large value
+        context_manager.set("large_key", b"x" * 2000)
+
+        health_check = ContextHealthCheck(
+            check_type="size",
+            key_pattern="*",
+            threshold=100.0,
+            action="warn"
+        )
+
+        config = LogicConfig(
+            logic_id="warn_test",
+            max_iterations=2,
+            context_health_checks=[health_check]
+        )
+        runner = LogicRunner(agent_runner, context_manager, pattern_registry, config)
+
+        results = runner.run()
+        # Should continue despite warning
+        assert len(results) == 2
+
+    def test_context_health_check_action_stop(self, agent_runner, context_manager, pattern_registry, mock_llm_provider):
+        """Test health check with 'stop' action halts execution."""
+        from agentic.logic import ContextHealthCheck, LogicConfig
+        from agentic.events import ContextHealthEvent, StatusEvent
+
+        # Set large value
+        context_manager.set("large_key", b"x" * 2000)
+
+        health_check = ContextHealthCheck(
+            check_type="size",
+            key_pattern="*",
+            threshold=100.0,
+            action="stop"
+        )
+
+        config = LogicConfig(
+            logic_id="stop_test",
+            max_iterations=5,
+            context_health_checks=[health_check]
+        )
+        runner = LogicRunner(agent_runner, context_manager, pattern_registry, config)
+
+        events = []
+        import asyncio
+        async def collect_events():
+            async for event in runner.run_stream():
+                events.append(event)
+
+        asyncio.run(collect_events())
+
+        # Should have health event and stop
+        health_events = [e for e in events if isinstance(e, ContextHealthEvent)]
+        status_events = [e for e in events if isinstance(e, StatusEvent)]
+
+        assert len(health_events) > 0
+        assert any("Stopping due to health check" in e.message for e in status_events if e.message)
+
+    def test_context_health_check_key_pattern_wildcard(self, agent_runner, context_manager, pattern_registry, mock_llm_provider):
+        """Test health check with wildcard key pattern matches all keys."""
+        from agentic.logic import ContextHealthCheck, LogicConfig
+        from agentic.events import ContextHealthEvent
+
+        # Set multiple keys
+        context_manager.set("key1", b"x" * 200)
+        context_manager.set("key2", b"y" * 200)
+
+        health_check = ContextHealthCheck(
+            check_type="size",
+            key_pattern="*",
+            threshold=100.0,
+            action="warn"
+        )
+
+        config = LogicConfig(
+            logic_id="wildcard_test",
+            max_iterations=1,
+            context_health_checks=[health_check]
+        )
+        runner = LogicRunner(agent_runner, context_manager, pattern_registry, config)
+
+        events = []
+        import asyncio
+        async def collect_events():
+            async for event in runner.run_stream():
+                events.append(event)
+
+        asyncio.run(collect_events())
+
+        health_events = [e for e in events if isinstance(e, ContextHealthEvent)]
+        # Should check all keys
+        assert len(health_events) >= 2
+
+    def test_context_health_check_key_pattern_prefix(self, agent_runner, context_manager, pattern_registry, mock_llm_provider):
+        """Test health check with prefix pattern matches specific keys."""
+        from agentic.logic import ContextHealthCheck, LogicConfig
+        from agentic.events import ContextHealthEvent
+
+        # Set keys with different prefixes
+        context_manager.set("tool_result:1", b"x" * 200)
+        context_manager.set("tool_result:2", b"y" * 200)
+        context_manager.set("llm_output:1", b"z" * 200)
+
+        health_check = ContextHealthCheck(
+            check_type="size",
+            key_pattern="tool_result:*",
+            threshold=100.0,
+            action="warn"
+        )
+
+        config = LogicConfig(
+            logic_id="prefix_test",
+            max_iterations=1,
+            context_health_checks=[health_check]
+        )
+        runner = LogicRunner(agent_runner, context_manager, pattern_registry, config)
+
+        events = []
+        import asyncio
+        async def collect_events():
+            async for event in runner.run_stream():
+                events.append(event)
+
+        asyncio.run(collect_events())
+
+        health_events = [e for e in events if isinstance(e, ContextHealthEvent)]
+        # Should only check tool_result keys
+        for event in health_events:
+            assert event.key.startswith("tool_result:")
+
+    def test_context_health_check_multiple_checks(self, agent_runner, context_manager, pattern_registry, mock_llm_provider):
+        """Test multiple health checks can be configured."""
+        from agentic.logic import ContextHealthCheck, LogicConfig
+
+        # Set up context
+        context_manager.set("key1", b"x" * 500)
+        for i in range(3):
+            context_manager.set("key2", f"v{i}".encode())
+
+        check1 = ContextHealthCheck(
+            check_type="size",
+            key_pattern="key1",
+            threshold=400.0,
+            action="warn"
+        )
+        check2 = ContextHealthCheck(
+            check_type="version_count",
+            key_pattern="key2",
+            threshold=2.0,
+            action="warn"
+        )
+
+        config = LogicConfig(
+            logic_id="multi_check",
+            max_iterations=1,
+            context_health_checks=[check1, check2]
+        )
+        runner = LogicRunner(agent_runner, context_manager, pattern_registry, config)
+
+        results = runner.run()
+        assert len(results) == 1
+
+    def test_context_health_check_key_pattern_complex_glob(self, agent_runner, context_manager, pattern_registry, mock_llm_provider):
+        """Test health check with complex glob patterns (suffix patterns like *_result)."""
+        from agentic.logic import ContextHealthCheck, LogicConfig
+        from agentic.events import ContextHealthEvent
+
+        # Set keys that should match pattern "*_result"
+        context_manager.set("tool_result", b"x" * 200)
+        context_manager.set("api_result", b"y" * 200)
+        context_manager.set("result_data", b"z" * 50)  # Should NOT match
+        context_manager.set("other_key", b"a" * 200)   # Should NOT match
+
+        health_check = ContextHealthCheck(
+            check_type="size",
+            key_pattern="*_result",  # Complex glob (suffix pattern)
+            threshold=100.0,
+            action="warn"
+        )
+
+        config = LogicConfig(
+            logic_id="complex_glob_test",
+            max_iterations=1,
+            context_health_checks=[health_check]
+        )
+        runner = LogicRunner(agent_runner, context_manager, pattern_registry, config)
+
+        events = []
+        import asyncio
+        async def collect_events():
+            async for event in runner.run_stream():
+                events.append(event)
+
+        asyncio.run(collect_events())
+
+        health_events = [e for e in events if isinstance(e, ContextHealthEvent)]
+        # Should only check keys ending with "_result"
+        matched_keys = {event.key for event in health_events}
+        assert "tool_result" in matched_keys
+        assert "api_result" in matched_keys
+        assert "result_data" not in matched_keys
+        assert "other_key" not in matched_keys
+
+    def test_context_health_check_key_pattern_mid_glob(self, agent_runner, context_manager, pattern_registry, mock_llm_provider):
+        """Test health check with glob pattern having wildcard in middle."""
+        from agentic.logic import ContextHealthCheck, LogicConfig
+        from agentic.events import ContextHealthEvent
+
+        # Set keys that should match pattern "tool_*_output"
+        context_manager.set("tool_api_output", b"x" * 200)
+        context_manager.set("tool_db_output", b"y" * 200)
+        context_manager.set("tool_result", b"z" * 200)  # Should NOT match
+        context_manager.set("api_tool_output", b"w" * 200)  # Should NOT match
+
+        health_check = ContextHealthCheck(
+            check_type="size",
+            key_pattern="tool_*_output",
+            threshold=100.0,
+            action="warn"
+        )
+
+        config = LogicConfig(
+            logic_id="mid_glob_test",
+            max_iterations=1,
+            context_health_checks=[health_check]
+        )
+        runner = LogicRunner(agent_runner, context_manager, pattern_registry, config)
+
+        events = []
+        import asyncio
+        async def collect_events():
+            async for event in runner.run_stream():
+                events.append(event)
+
+        asyncio.run(collect_events())
+
+        health_events = [e for e in events if isinstance(e, ContextHealthEvent)]
+        matched_keys = {event.key for event in health_events}
+        assert "tool_api_output" in matched_keys
+        assert "tool_db_output" in matched_keys
+        assert "tool_result" not in matched_keys
+        assert "api_tool_output" not in matched_keys
+
+    def test_context_health_check_max_versions_limit_default(self):
+        """Test ContextHealthCheck has default max_versions_limit."""
+        from agentic.logic import ContextHealthCheck
+
+        check = ContextHealthCheck(
+            check_type="version_count",
+            key_pattern="*",
+            threshold=5000.0
+        )
+        assert check.max_versions_limit == 10000
+
+    def test_context_health_check_max_versions_limit_custom(self):
+        """Test ContextHealthCheck respects custom max_versions_limit."""
+        from agentic.logic import ContextHealthCheck
+
+        check = ContextHealthCheck(
+            check_type="version_count",
+            key_pattern="*",
+            threshold=5000.0,
+            max_versions_limit=100
+        )
+        assert check.max_versions_limit == 100
+
+    def test_context_health_check_version_count_respects_limit(self, agent_runner, context_manager, pattern_registry, mock_llm_provider):
+        """Test health check respects max_versions_limit to prevent memory exhaustion."""
+        from agentic.logic import ContextHealthCheck, LogicConfig
+        from agentic.events import ContextHealthEvent
+        from unittest.mock import patch
+
+        # Create many versions
+        for i in range(20):
+            context_manager.set("versioned_key", f"value_{i}".encode())
+
+        # Use very high threshold but low max_versions_limit
+        health_check = ContextHealthCheck(
+            check_type="version_count",
+            key_pattern="versioned_*",
+            threshold=50000.0,  # Very high threshold
+            max_versions_limit=10,  # But limited fetch
+            action="warn"
+        )
+
+        config = LogicConfig(
+            logic_id="limit_test",
+            max_iterations=1,
+            context_health_checks=[health_check]
+        )
+        runner = LogicRunner(agent_runner, context_manager, pattern_registry, config)
+
+        # Spy on get_history to verify max_versions param
+        original_get_history = context_manager.get_history
+        call_args = []
+
+        def spy_get_history(key, max_versions=None):
+            call_args.append((key, max_versions))
+            return original_get_history(key, max_versions=max_versions)
+
+        with patch.object(context_manager, 'get_history', side_effect=spy_get_history):
+            events = []
+            import asyncio
+            async def collect_events():
+                async for event in runner.run_stream():
+                    events.append(event)
+
+            asyncio.run(collect_events())
+
+        # Verify get_history was called with max_versions=10 (not 50001)
+        assert any(max_vers == 10 for _, max_vers in call_args if max_vers is not None)
+
+        # Should not emit health event since we only fetched 10 versions (< threshold)
+        health_events = [e for e in events if isinstance(e, ContextHealthEvent)]
+        # Even though there are 20 versions, we only fetched 10, so no violation detected
+        # This is expected behavior - the limit prevents exhaustive checks
+        assert len(health_events) == 0  # No violation because capped at 10 versions
+
+
+class TestContextHealthEvent:
+    """Tests for ContextHealthEvent."""
+
+    def test_context_health_event_creation(self):
+        """Test creating ContextHealthEvent."""
+        from agentic.events import ContextHealthEvent
+
+        event = ContextHealthEvent(
+            check_type="size",
+            key="test_key",
+            current_value=1500.0,
+            threshold=1000.0,
+            recommended_action="warn"
+        )
+        assert event.type == "context_health"
+        assert event.check_type == "size"
+        assert event.key == "test_key"
+        assert event.current_value == 1500.0
+        assert event.threshold == 1000.0
+        assert event.recommended_action == "warn"
+
+    def test_context_health_event_with_timestamp(self):
+        """Test ContextHealthEvent with explicit timestamp."""
+        from agentic.events import ContextHealthEvent
+
+        ts = 123456.789
+        event = ContextHealthEvent(
+            check_type="version_count",
+            key="key",
+            current_value=10.0,
+            threshold=5.0,
+            recommended_action="stop",
+            timestamp=ts
+        )
+        assert event.timestamp == ts
+
+    def test_context_health_event_with_step_id(self):
+        """Test ContextHealthEvent with step_id."""
+        from agentic.events import ContextHealthEvent
+
+        event = ContextHealthEvent(
+            check_type="size",
+            key="key",
+            current_value=100.0,
+            threshold=50.0,
+            recommended_action="warn",
+            step_id="step_abc"
+        )
+        assert event.step_id == "step_abc"

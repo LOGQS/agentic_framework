@@ -46,7 +46,10 @@ from .events import (
     PatternStartEvent,
     PatternContentEvent,
     PatternEndEvent,
-    StepCompleteEvent
+    StepCompleteEvent,
+    RetryEvent,
+    RateLimitEvent,
+    ContextHealthEvent
 )
 
 # Storage layer
@@ -95,10 +98,33 @@ from .logic import (
     LogicCondition,
     LogicConfig,
     LogicRunner,
+    ContextHealthCheck,
     loop_n_times,
     loop_until_pattern,
     loop_until_regex,
     stop_on_error
+)
+
+# Resilience utilities
+from .resilience import (
+    RetryConfig,
+    RateLimitConfig,
+    RateLimiter,
+    retry_stream,
+    rate_limited_stream,
+    resilient_stream
+)
+
+# Multi-agent patterns
+from .multi_agent import (
+    AgentChain,
+    AgentChainConfig,
+    SupervisorPattern,
+    SupervisorConfig,
+    ParallelPattern,
+    ParallelConfig,
+    DebatePattern,
+    DebateConfig
 )
 
 __version__ = "0.1.0"
@@ -142,6 +168,9 @@ __all__ = [
     "PatternContentEvent",
     "PatternEndEvent",
     "StepCompleteEvent",
+    "RetryEvent",
+    "RateLimitEvent",
+    "ContextHealthEvent",
     # Storage
     "StorageConfig",
     "RocksDBStorage",
@@ -172,8 +201,25 @@ __all__ = [
     "LogicCondition",
     "LogicConfig",
     "LogicRunner",
+    "ContextHealthCheck",
     "loop_n_times",
     "loop_until_pattern",
     "loop_until_regex",
     "stop_on_error",
+    # Resilience
+    "RetryConfig",
+    "RateLimitConfig",
+    "RateLimiter",
+    "retry_stream",
+    "rate_limited_stream",
+    "resilient_stream",
+    # Multi-agent
+    "AgentChain",
+    "AgentChainConfig",
+    "SupervisorPattern",
+    "SupervisorConfig",
+    "ParallelPattern",
+    "ParallelConfig",
+    "DebatePattern",
+    "DebateConfig",
 ]

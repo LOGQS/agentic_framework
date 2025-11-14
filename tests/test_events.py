@@ -526,3 +526,321 @@ class TestEventEdgeCases:
         unicode_text = "Hello \u4e16\u754c \u00e9\u00f1"
         event = LLMTokenEvent(token=unicode_text)
         assert event.token == unicode_text
+
+
+class TestRetryEvent:
+    """Tests for RetryEvent."""
+
+    def test_retry_event_creation(self):
+        """Test creating RetryEvent."""
+        from agentic.events import RetryEvent
+
+        event = RetryEvent(
+            operation_type="llm",
+            operation_name="gpt-4",
+            attempt=2,
+            max_attempts=5,
+            error="Timeout occurred",
+            next_delay_seconds=4.0
+        )
+        assert event.type == "retry"
+        assert event.operation_type == "llm"
+        assert event.operation_name == "gpt-4"
+        assert event.attempt == 2
+        assert event.max_attempts == 5
+        assert event.error == "Timeout occurred"
+        assert event.next_delay_seconds == 4.0
+
+    def test_retry_event_with_timestamp(self):
+        """Test RetryEvent with explicit timestamp."""
+        from agentic.events import RetryEvent
+
+        ts = 123456.789
+        event = RetryEvent(
+            operation_type="tool",
+            operation_name="calculator",
+            attempt=1,
+            max_attempts=3,
+            error="Connection error",
+            next_delay_seconds=1.0,
+            timestamp=ts
+        )
+        assert event.timestamp == ts
+
+    def test_retry_event_with_step_id(self):
+        """Test RetryEvent with step_id."""
+        from agentic.events import RetryEvent
+
+        event = RetryEvent(
+            operation_type="custom",
+            operation_name="data_fetch",
+            attempt=3,
+            max_attempts=5,
+            error="Network error",
+            next_delay_seconds=8.0,
+            step_id="step_xyz"
+        )
+        assert event.step_id == "step_xyz"
+
+    def test_retry_event_operation_types(self):
+        """Test RetryEvent with different operation types."""
+        from agentic.events import RetryEvent
+
+        for op_type in ["llm", "tool", "custom"]:
+            event = RetryEvent(
+                operation_type=op_type,
+                operation_name="test",
+                attempt=1,
+                max_attempts=3,
+                error="error",
+                next_delay_seconds=1.0
+            )
+            assert event.operation_type == op_type
+
+
+class TestRateLimitEvent:
+    """Tests for RateLimitEvent."""
+
+    def test_rate_limit_event_creation(self):
+        """Test creating RateLimitEvent."""
+        from agentic.events import RateLimitEvent
+        import time
+
+        acquired_time = time.time()
+        event = RateLimitEvent(
+            operation_name="api_call",
+            acquired_at=acquired_time,
+            tokens_remaining=8.5
+        )
+        assert event.type == "rate_limit"
+        assert event.operation_name == "api_call"
+        assert event.acquired_at == acquired_time
+        assert event.tokens_remaining == 8.5
+
+    def test_rate_limit_event_with_timestamp(self):
+        """Test RateLimitEvent with explicit timestamp."""
+        from agentic.events import RateLimitEvent
+
+        ts = 123456.789
+        acquired = 123450.0
+        event = RateLimitEvent(
+            operation_name="llm_request",
+            acquired_at=acquired,
+            tokens_remaining=5.0,
+            timestamp=ts
+        )
+        assert event.timestamp == ts
+
+    def test_rate_limit_event_with_step_id(self):
+        """Test RateLimitEvent with step_id."""
+        from agentic.events import RateLimitEvent
+        import time
+
+        event = RateLimitEvent(
+            operation_name="query",
+            acquired_at=time.time(),
+            tokens_remaining=3.2,
+            step_id="step_123"
+        )
+        assert event.step_id == "step_123"
+
+    def test_rate_limit_event_zero_tokens(self):
+        """Test RateLimitEvent with zero tokens remaining."""
+        from agentic.events import RateLimitEvent
+        import time
+
+        event = RateLimitEvent(
+            operation_name="burst_request",
+            acquired_at=time.time(),
+            tokens_remaining=0.0
+        )
+        assert event.tokens_remaining == 0.0
+
+    def test_rate_limit_event_fractional_tokens(self):
+        """Test RateLimitEvent with fractional tokens."""
+        from agentic.events import RateLimitEvent
+        import time
+
+        event = RateLimitEvent(
+            operation_name="partial",
+            acquired_at=time.time(),
+            tokens_remaining=2.75
+        )
+        assert event.tokens_remaining == 2.75
+
+
+class TestContextHealthEvent:
+    """Tests for ContextHealthEvent."""
+
+    def test_context_health_event_creation(self):
+        """Test creating ContextHealthEvent."""
+        from agentic.events import ContextHealthEvent
+
+        event = ContextHealthEvent(
+            check_type="size",
+            key="context_key",
+            current_value=1500.0,
+            threshold=1000.0,
+            recommended_action="warn"
+        )
+        assert event.type == "context_health"
+        assert event.check_type == "size"
+        assert event.key == "context_key"
+        assert event.current_value == 1500.0
+        assert event.threshold == 1000.0
+        assert event.recommended_action == "warn"
+
+    def test_context_health_event_with_timestamp(self):
+        """Test ContextHealthEvent with explicit timestamp."""
+        from agentic.events import ContextHealthEvent
+
+        ts = 123456.789
+        event = ContextHealthEvent(
+            check_type="version_count",
+            key="versioned_key",
+            current_value=10.0,
+            threshold=5.0,
+            recommended_action="stop",
+            timestamp=ts
+        )
+        assert event.timestamp == ts
+
+    def test_context_health_event_with_step_id(self):
+        """Test ContextHealthEvent with step_id."""
+        from agentic.events import ContextHealthEvent
+
+        event = ContextHealthEvent(
+            check_type="growth_rate",
+            key="growing_key",
+            current_value=2.5,
+            threshold=2.0,
+            recommended_action="warn",
+            step_id="step_abc"
+        )
+        assert event.step_id == "step_abc"
+
+    def test_context_health_event_check_types(self):
+        """Test ContextHealthEvent with different check types."""
+        from agentic.events import ContextHealthEvent
+
+        check_types = ["size", "version_count", "growth_rate"]
+        for check_type in check_types:
+            event = ContextHealthEvent(
+                check_type=check_type,
+                key="test_key",
+                current_value=100.0,
+                threshold=50.0,
+                recommended_action="warn"
+            )
+            assert event.check_type == check_type
+
+    def test_context_health_event_actions(self):
+        """Test ContextHealthEvent with different recommended actions."""
+        from agentic.events import ContextHealthEvent
+
+        for action in ["warn", "stop"]:
+            event = ContextHealthEvent(
+                check_type="size",
+                key="key",
+                current_value=200.0,
+                threshold=100.0,
+                recommended_action=action
+            )
+            assert event.recommended_action == action
+
+
+class TestNewEventTimestamps:
+    """Tests for timestamp behavior of new events."""
+
+    def test_new_events_have_timestamps(self):
+        """Test that all new event types have timestamps."""
+        from agentic.events import RetryEvent, RateLimitEvent, ContextHealthEvent
+        import time
+
+        events = [
+            RetryEvent("llm", "test", 1, 3, "error", 1.0),
+            RateLimitEvent("test", time.time(), 5.0),
+            ContextHealthEvent("size", "key", 100.0, 50.0, "warn")
+        ]
+
+        for event in events:
+            assert hasattr(event, 'timestamp')
+            assert isinstance(event.timestamp, float)
+            assert event.timestamp > 0
+
+    def test_new_events_explicit_timestamps(self):
+        """Test that new events respect explicit timestamps."""
+        from agentic.events import RetryEvent, RateLimitEvent, ContextHealthEvent
+        import time
+
+        ts = 999999.123
+        events = [
+            RetryEvent("llm", "test", 1, 3, "error", 1.0, timestamp=ts),
+            RateLimitEvent("test", time.time(), 5.0, timestamp=ts),
+            ContextHealthEvent("size", "key", 100.0, 50.0, "warn", timestamp=ts)
+        ]
+
+        for event in events:
+            assert event.timestamp == ts
+
+
+class TestNewEventTypes:
+    """Tests for event type identifiers of new events."""
+
+    def test_new_event_type_values(self):
+        """Test that new events have correct type values."""
+        from agentic.events import RetryEvent, RateLimitEvent, ContextHealthEvent
+        import time
+
+        type_mappings = [
+            (RetryEvent("llm", "test", 1, 3, "error", 1.0), "retry"),
+            (RateLimitEvent("test", time.time(), 5.0), "rate_limit"),
+            (ContextHealthEvent("size", "key", 100.0, 50.0, "warn"), "context_health")
+        ]
+
+        for event, expected_type in type_mappings:
+            assert event.type == expected_type
+
+
+class TestAllEventTypes:
+    """Test that all events are covered in AgentEvent type alias."""
+
+    def test_all_events_in_type_alias(self):
+        """Verify all event classes are included in AgentEvent type alias."""
+        from agentic.events import (
+            LLMTokenEvent, LLMCompleteEvent, StatusEvent,
+            ToolStartEvent, ToolOutputEvent, ToolEndEvent, ToolValidationEvent,
+            ContextWriteEvent, ErrorEvent,
+            PatternStartEvent, PatternContentEvent, PatternEndEvent,
+            StepCompleteEvent, RetryEvent, RateLimitEvent, ContextHealthEvent
+        )
+        from agentic.core import AgentStatus, ToolResult, AgentStepResult, ExtractedSegments
+        import time
+
+        # Create instances of all event types
+        all_events = [
+            LLMTokenEvent("token"),
+            LLMCompleteEvent("text"),
+            StatusEvent(AgentStatus.OK),
+            ToolStartEvent("tool", {}, 0),
+            ToolOutputEvent("tool", "output"),
+            ToolEndEvent("tool", ToolResult("tool", "out", True)),
+            ToolValidationEvent("tool", []),
+            ContextWriteEvent("key", "preview", 1, 0),
+            ErrorEvent("error", "message"),
+            PatternStartEvent("pattern", "tool"),
+            PatternContentEvent("pattern", "content"),
+            PatternEndEvent("pattern", "tool", "content"),
+            StepCompleteEvent(AgentStepResult(
+                AgentStatus.OK, "output", ExtractedSegments(), [], 0
+            )),
+            RetryEvent("llm", "test", 1, 3, "error", 1.0),
+            RateLimitEvent("test", time.time(), 5.0),
+            ContextHealthEvent("size", "key", 100.0, 50.0, "warn")
+        ]
+
+        # All should have type and timestamp
+        for event in all_events:
+            assert hasattr(event, 'type')
+            assert hasattr(event, 'timestamp')
+            assert hasattr(event, 'step_id')

@@ -1,15 +1,18 @@
 # Agentic Framework
 
-An agentic framework with versioned context, persistent storage, and streaming-first architecture.
+An agentic framework with versioned context, persistent storage, streaming-first architecture, and multi-agent orchestration.
 
 ## Features
 
 - **Streaming-First**: Real-time event streams for LLM generation, pattern detection, and tool execution
-- **13 Event Types**: Comprehensive observability (LLMToken, PatternStart/End, ToolStart/End, Status, Error, etc.)
+- **16 Event Types**: Comprehensive observability including LLM, tools, patterns, retry, rate limiting, and context health monitoring
 - **Persistent Context**: Versioned key-value store in RocksDB with automatic timestamps and iteration tracking
-- **Pattern Extraction**: Batch (`PatternExtractor`) and streaming (`StreamingPatternExtractor`) with incremental detection
+- **Pattern Extraction**: Batch and streaming extraction with incremental detection and malformed pattern handling
 - **Multi-Mode Tools**: Execute tools in PROCESS, THREAD, or ASYNC modes with timeout handling and streaming support
-- **Flexible Logic**: Conditional loops with pattern-based, regex-based, or context-based stop conditions
+- **Validation System**: Format-agnostic validation (simple, JSON Schema, custom) with extensible validator registry
+- **Resilience**: Built-in retry logic with exponential backoff and token bucket rate limiting
+- **Multi-Agent Patterns**: Chain, Supervisor-Worker, Parallel, and Debate patterns for agent orchestration
+- **Flexible Logic**: Conditional loops with pattern-based, regex-based, or context-based conditions and context health monitoring
 - **Type-Safe**: Full type hints throughout the codebase
 
 ## Installation
@@ -106,14 +109,17 @@ asyncio.run(stream_example())
 
 ```
 agentic/
-├── core.py       # Enums (ProcessingMode, SegmentType, AgentStatus) & Data classes
-├── events.py     # 13 event types (LLMToken, PatternStart/End, ToolStart/End, etc.)
-├── storage.py    # RocksDBStorage with automatic path resolution and DB identification
-├── context.py    # IterationManager & ContextManager with versioning and history
-├── patterns.py   # PatternExtractor (batch) & StreamingPatternExtractor (incremental)
-├── tools.py      # Tool execution with multi-mode support, timeouts, and streaming
-├── agent.py      # Agent & AgentRunner with dual-mode execution (step/step_stream)
-└── logic.py      # LogicRunner for conditional loops with flexible evaluation points
+├── core.py         # Enums (ProcessingMode, SegmentType, AgentStatus) & data classes
+├── validation.py   # Format-agnostic validation system with extensible validators
+├── events.py       # 16 event types (LLM, tools, patterns, retry, rate limit, health)
+├── storage.py      # RocksDBStorage with automatic path resolution and DB identification
+├── context.py      # IterationManager & ContextManager with versioning and history
+├── patterns.py     # PatternExtractor (batch) & StreamingPatternExtractor (incremental)
+├── tools.py        # Tool execution with multi-mode support, timeouts, and streaming
+├── agent.py        # Agent & AgentRunner with dual-mode execution (step/step_stream)
+├── logic.py        # LogicRunner for conditional loops with context health monitoring
+├── resilience.py   # Retry logic with backoff and token bucket rate limiting
+└── multi_agent.py  # Multi-agent orchestration patterns (Chain, Supervisor, Parallel, Debate)
 ```
 
 ### Key Components
@@ -149,10 +155,30 @@ agentic/
 **Logic** (`logic.py`):
 - `LogicRunner`: Conditional loops with `run()` (batch) and `run_stream()` (streaming)
 - `LogicCondition`: Pattern/regex/context-based with flexible evaluation points
+- `ContextHealthCheck`: Monitor context size, version count, and growth rate
 - Helpers: `loop_n_times()`, `loop_until_pattern()`, `loop_until_regex()`, `stop_on_error()`
 
+**Validation** (`validation.py`):
+- `ValidatorRegistry`: Extensible registry for any validation format
+- `ValidationError`: Structured error with field, message, and value
+- Built-in validators: `simple_validator` (type checking, constraints), `passthrough_validator`
+- Support for JSON Schema, XML Schema, Protocol Buffers, or custom validators
+
 **Events** (`events.py`):
-13 event types: `LLMTokenEvent`, `LLMCompleteEvent`, `PatternStartEvent`, `PatternContentEvent`, `PatternEndEvent`, `StatusEvent`, `ToolStartEvent`, `ToolOutputEvent`, `ToolEndEvent`, `ContextWriteEvent`, `ErrorEvent`, `StepCompleteEvent`
+16 event types: `LLMTokenEvent`, `LLMCompleteEvent`, `PatternStartEvent`, `PatternContentEvent`, `PatternEndEvent`, `StatusEvent`, `ToolStartEvent`, `ToolOutputEvent`, `ToolEndEvent`, `ToolValidationEvent`, `ContextWriteEvent`, `ErrorEvent`, `StepCompleteEvent`, `RetryEvent`, `RateLimitEvent`, `ContextHealthEvent`
+
+**Resilience** (`resilience.py`):
+- `RetryConfig`: Exponential/linear/constant backoff with jitter
+- `RateLimiter`: Token bucket algorithm with per-second/minute/hour limits
+- `retry_stream()`: Universal retry wrapper for any async iterator
+- `rate_limited_stream()`: Universal rate limiting wrapper
+- `resilient_stream()`: Combined retry + rate limiting
+
+**Multi-Agent** (`multi_agent.py`):
+- `AgentChain`: Sequential execution with configurable output passing
+- `SupervisorPattern`: Supervisor delegates tasks to specialized workers
+- `ParallelPattern`: Parallel execution with result merging
+- `DebatePattern`: Multi-round debate with consensus detection
 
 ## Advanced Usage
 
@@ -214,6 +240,157 @@ async for event in logic.run_stream("Analyze this problem"):
         print(f"Iteration {event.result.iteration} complete")
 ```
 
+### Tool Validation
+
+```python
+from agentic import ValidatorRegistry, ValidationError
+
+# Built-in simple validator
+tools.register(create_tool(
+    name="calculate",
+    func=calculate_fn,
+    input_schema={
+        "validator": "simple",
+        "fields": {
+            "x": {"type": "number", "required": True},
+            "y": {"type": "number", "required": True},
+            "op": {"type": "string", "enum": ["+", "-", "*", "/"]}
+        }
+    }
+))
+
+# Custom validator
+def my_validator(value: Any, schema: dict) -> tuple[bool, list[ValidationError]]:
+    # Your validation logic
+    return True, []
+
+registry = ValidatorRegistry()
+registry.register("my_format", my_validator)
+```
+
+### Retry and Rate Limiting
+
+```python
+from agentic import RetryConfig, RateLimitConfig, RateLimiter, resilient_stream
+
+# Retry configuration
+retry_config = RetryConfig(
+    max_attempts=3,
+    backoff="exponential",  # or "linear", "constant"
+    base_delay=1.0,
+    max_delay=60.0,
+    jitter=True,
+    retry_on=(TimeoutError, ConnectionError)
+)
+
+# Rate limiting
+rate_config = RateLimitConfig(
+    requests_per_second=10,
+    requests_per_minute=100,
+    burst_size=20
+)
+limiter = RateLimiter(rate_config)
+
+# Combined resilient stream
+async def my_llm_call():
+    async for token in provider.stream(prompt):
+        yield token
+
+async for item in resilient_stream(
+    my_llm_call,
+    retry_config=retry_config,
+    rate_limiter=limiter,
+    operation_name="gpt-4",
+    operation_type="llm"
+):
+    if isinstance(item, RetryEvent):
+        print(f"Retrying after {item.next_delay_seconds}s")
+    elif isinstance(item, RateLimitEvent):
+        print(f"Rate limit: {item.tokens_remaining} tokens left")
+    else:
+        print(item, end="")
+```
+
+### Multi-Agent Patterns
+
+```python
+from agentic import AgentChain, AgentChainConfig, SupervisorPattern, ParallelPattern
+
+# Sequential chain
+chain = AgentChain(
+    agents=[
+        ("researcher", research_agent),
+        ("writer", writing_agent),
+        ("editor", editing_agent)
+    ],
+    config=AgentChainConfig(pass_mode="response")
+)
+
+async for event in chain.execute("Write article about AI"):
+    if isinstance(event, StepCompleteEvent):
+        print(f"Agent completed: {event.result.segments.response}")
+
+# Supervisor-Worker pattern
+supervisor = SupervisorPattern(
+    supervisor=coordinator_agent,
+    workers={
+        "research": research_agent,
+        "coding": coding_agent,
+        "testing": testing_agent
+    }
+)
+
+async for event in supervisor.execute("Build a web scraper"):
+    # Supervisor delegates to specialized workers
+    pass
+
+# Parallel execution with merging
+parallel = ParallelPattern(
+    agents={
+        "optimist": optimist_agent,
+        "pessimist": pessimist_agent,
+        "realist": realist_agent
+    },
+    merger=synthesis_agent,
+    config=ParallelConfig(merge_strategy="agent")
+)
+
+async for event in parallel.execute_and_merge("Analyze market trends"):
+    # All agents run in parallel, results merged
+    pass
+```
+
+### Context Health Monitoring
+
+```python
+from agentic import ContextHealthCheck
+
+logic_config = LogicConfig(
+    logic_id="monitored_loop",
+    max_iterations=100,
+    context_health_checks=[
+        ContextHealthCheck(
+            check_type="size",
+            key_pattern="llm_output:*",
+            threshold=1_000_000,  # 1MB
+            action="warn"  # or "stop"
+        ),
+        ContextHealthCheck(
+            check_type="version_count",
+            key_pattern="*",
+            threshold=1000,
+            action="stop"
+        )
+    ]
+)
+
+# Health events emitted during execution
+async for event in logic.run_stream("Your task"):
+    if isinstance(event, ContextHealthEvent):
+        print(f"Health issue: {event.check_type} at {event.key}")
+        print(f"Current: {event.current_value}, Threshold: {event.threshold}")
+```
+
 ### Tool Approval Callback
 
 ```python
@@ -236,7 +413,7 @@ pytest -v                 # Verbose
 pytest -m asyncio         # Async tests only
 ```
 
-325+ tests with >90% coverage. See `tests/README.md` for details.
+550+ tests with >90% coverage across all modules. See `tests/README.md` for details.
 
 ## Security Considerations
 
@@ -246,28 +423,44 @@ pytest -m asyncio         # Async tests only
 - Use sandboxing (Docker, separate processes) for untrusted code
 - The framework provides APIs but does not restrict tool behavior by design
 
+**Validation:**
+- Use input validation on all tools to prevent injection attacks
+- Built-in `simple_validator` checks types and constraints
+- Custom validators can implement format-specific security checks
+
 **Buffer Limits:**
 - `StreamingPatternExtractor` enforces a 10MB buffer limit by default
-- Configure via `max_buffer_size` parameter if needed
+- Configure via `max_buffer_size` in `AgentConfig` to prevent memory exhaustion
+- Partial buffer tracking in `LogicRunner` uses same limit
 
-**Context History:**
-- `get_history()` defaults to 100 versions to prevent memory exhaustion
-- Increase limit explicitly if you need full history access
+**Context Health:**
+- Monitor context size and version count to prevent resource exhaustion
+- Use `ContextHealthCheck` with `action="stop"` to halt execution on threshold breach
+- Default history limit of 100 versions prevents unbounded growth
+
+**Rate Limiting:**
+- Apply rate limiting to external API calls to prevent quota exhaustion
+- Token bucket implementation prevents burst attacks
+- Combine with retry logic for resilient operation
 
 **Best Practices:**
-- Validate tool inputs before execution
+- Validate tool inputs before execution using the validation system
 - Use timeouts on all tool calls (enforced by framework)
 - Review LLM outputs before executing extracted tools
 - Use `on_tool_detected` callback for human-in-the-loop approval
+- Apply retry logic only to idempotent operations
+- Monitor context health in long-running loops
 
 ## Design Principles
 
 1. **Streaming First**: Batch mode wraps streaming for consistency
-2. **Persistence First**: All state in RocksDB
-3. **Versioning by Default**: Context auto-versioned
-4. **Type Safety**: Full type hints
-5. **Single Responsibility**: Focused modules
-6. **Minimal Dependencies**: Only rocksdict required
+2. **Persistence First**: All state in RocksDB with versioning
+3. **Versioning by Default**: Context auto-versioned with full history
+4. **Type Safety**: Full type hints throughout
+5. **Single Responsibility**: Focused modules with clear boundaries
+6. **Extensibility**: Plugin validation, custom patterns, user-defined tools
+7. **Resilience**: Built-in retry, rate limiting, and health monitoring
+8. **Minimal Dependencies**: Only rocksdict required
 
 ## License
 

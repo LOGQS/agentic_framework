@@ -22,7 +22,6 @@ class BaseEvent:
 
 @dataclass(init=False)
 class LLMTokenEvent(BaseEvent):
-    """Emitted when LLM generates a token."""
     token: str
 
     def __init__(self, token: str, timestamp: float = None, step_id: str = ""):
@@ -34,7 +33,6 @@ class LLMTokenEvent(BaseEvent):
 
 @dataclass(init=False)
 class LLMCompleteEvent(BaseEvent):
-    """Emitted when LLM generation completes."""
     full_text: str
 
     def __init__(self, full_text: str, timestamp: float = None, step_id: str = ""):
@@ -46,7 +44,6 @@ class LLMCompleteEvent(BaseEvent):
 
 @dataclass(init=False)
 class StatusEvent(BaseEvent):
-    """Emitted when agent status changes."""
     status: AgentStatus
     message: str | None = None
 
@@ -60,7 +57,6 @@ class StatusEvent(BaseEvent):
 
 @dataclass(init=False)
 class ToolStartEvent(BaseEvent):
-    """Emitted when tool execution begins."""
     tool_name: str
     arguments: dict[str, Any]
     iteration: int
@@ -78,7 +74,7 @@ class ToolStartEvent(BaseEvent):
 
 @dataclass(init=False)
 class ToolOutputEvent(BaseEvent):
-    """Emitted when tool produces output (may be partial)."""
+    """May be partial during streaming."""
     tool_name: str
     output: Any
     is_partial: bool = False
@@ -96,7 +92,6 @@ class ToolOutputEvent(BaseEvent):
 
 @dataclass(init=False)
 class ToolEndEvent(BaseEvent):
-    """Emitted when tool execution completes."""
     tool_name: str
     result: ToolResult
     call_id: str = ""
@@ -112,7 +107,6 @@ class ToolEndEvent(BaseEvent):
 
 @dataclass(init=False)
 class ToolValidationEvent(BaseEvent):
-    """Emitted when tool argument validation fails."""
     tool_name: str
     validation_errors: list[dict[str, Any]]
 
@@ -132,7 +126,6 @@ class ToolValidationEvent(BaseEvent):
 
 @dataclass(init=False)
 class ContextWriteEvent(BaseEvent):
-    """Emitted when context is updated."""
     key: str
     value_preview: str
     version: int
@@ -150,7 +143,6 @@ class ContextWriteEvent(BaseEvent):
 
 @dataclass(init=False)
 class ErrorEvent(BaseEvent):
-    """Emitted when an error occurs."""
     error_type: str
     error_message: str
     recoverable: bool = False
@@ -168,7 +160,7 @@ class ErrorEvent(BaseEvent):
 
 @dataclass(init=False)
 class PatternStartEvent(BaseEvent):
-    """Emitted when a pattern start tag is detected during streaming."""
+    """Detected during streaming before content accumulation."""
     pattern_name: str
     pattern_type: str
 
@@ -182,7 +174,7 @@ class PatternStartEvent(BaseEvent):
 
 @dataclass(init=False)
 class PatternContentEvent(BaseEvent):
-    """Emitted when pattern content is streamed (before end tag detected)."""
+    """Streamed before end tag is detected."""
     pattern_name: str
     content: str
     is_partial: bool = True
@@ -198,7 +190,7 @@ class PatternContentEvent(BaseEvent):
 
 @dataclass(init=False)
 class PatternEndEvent(BaseEvent):
-    """Emitted when a pattern end tag is detected during streaming."""
+    """Contains fully accumulated content after end tag detection."""
     pattern_name: str
     pattern_type: str
     full_content: str
@@ -214,7 +206,7 @@ class PatternEndEvent(BaseEvent):
 
 @dataclass(init=False)
 class StepCompleteEvent(BaseEvent):
-    """Emitted when agent step completes. Contains final aggregated result."""
+    """Contains final aggregated result."""
     result: AgentStepResult
 
     def __init__(self, result: AgentStepResult, timestamp: float = None, step_id: str = ""):
@@ -224,11 +216,91 @@ class StepCompleteEvent(BaseEvent):
         self.step_id = step_id
 
 
-# Type alias for all possible events
+@dataclass(init=False)
+class RetryEvent(BaseEvent):
+    operation_type: str  # "llm" | "tool" | "custom"
+    operation_name: str
+    attempt: int
+    max_attempts: int
+    error: str
+    next_delay_seconds: float
+
+    def __init__(
+        self,
+        operation_type: str,
+        operation_name: str,
+        attempt: int,
+        max_attempts: int,
+        error: str,
+        next_delay_seconds: float,
+        timestamp: float = None,
+        step_id: str = ""
+    ):
+        self.operation_type = operation_type
+        self.operation_name = operation_name
+        self.attempt = attempt
+        self.max_attempts = max_attempts
+        self.error = error
+        self.next_delay_seconds = next_delay_seconds
+        self.type = "retry"
+        self.timestamp = timestamp or now_timestamp()
+        self.step_id = step_id
+
+
+@dataclass(init=False)
+class RateLimitEvent(BaseEvent):
+    operation_name: str
+    acquired_at: float
+    tokens_remaining: float
+
+    def __init__(
+        self,
+        operation_name: str,
+        acquired_at: float,
+        tokens_remaining: float,
+        timestamp: float = None,
+        step_id: str = ""
+    ):
+        self.operation_name = operation_name
+        self.acquired_at = acquired_at
+        self.tokens_remaining = tokens_remaining
+        self.type = "rate_limit"
+        self.timestamp = timestamp or now_timestamp()
+        self.step_id = step_id
+
+
+@dataclass(init=False)
+class ContextHealthEvent(BaseEvent):
+    check_type: str  # "size" | "version_count" | "growth_rate"
+    key: str
+    current_value: float
+    threshold: float
+    recommended_action: str
+
+    def __init__(
+        self,
+        check_type: str,
+        key: str,
+        current_value: float,
+        threshold: float,
+        recommended_action: str,
+        timestamp: float = None,
+        step_id: str = ""
+    ):
+        self.check_type = check_type
+        self.key = key
+        self.current_value = current_value
+        self.threshold = threshold
+        self.recommended_action = recommended_action
+        self.type = "context_health"
+        self.timestamp = timestamp or now_timestamp()
+        self.step_id = step_id
+
+
 AgentEvent = (
     LLMTokenEvent | LLMCompleteEvent | StatusEvent |
     ToolStartEvent | ToolOutputEvent | ToolEndEvent | ToolValidationEvent |
     ContextWriteEvent | ErrorEvent |
     PatternStartEvent | PatternContentEvent | PatternEndEvent |
-    StepCompleteEvent
+    StepCompleteEvent | RetryEvent | RateLimitEvent | ContextHealthEvent
 )
