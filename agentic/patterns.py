@@ -2,6 +2,7 @@
 Pattern definitions and extraction from LLM output.
 """
 from dataclasses import dataclass, field
+from typing import Iterator, Any
 import json
 import re
 
@@ -309,16 +310,20 @@ class StreamingPatternExtractor:
     - Handles malformed patterns (missing end tags)
     """
 
-    def __init__(self, pattern_set: PatternSet, stream_content: bool = False):
+    DEFAULT_MAX_BUFFER_SIZE = 10_000_000
+
+    def __init__(self, pattern_set: PatternSet, stream_content: bool = False, max_buffer_size: int | None = None):
         """
         Initialize streaming pattern extractor.
 
         Args:
             pattern_set: Pattern definitions to match
             stream_content: If True, emit content before end tag detected
+            max_buffer_size: Maximum buffer size in bytes (default: 10MB)
         """
         self._pattern_set = pattern_set
         self._stream_content = stream_content
+        self._max_buffer_size = max_buffer_size if max_buffer_size is not None else self.DEFAULT_MAX_BUFFER_SIZE
         self._buffer = ""
 
         # Track completed patterns by buffer position to avoid re-emission
@@ -337,7 +342,7 @@ class StreamingPatternExtractor:
             regex_str = self._build_pattern_regex(pattern)
             self._compiled_regexes[pattern.name] = re.compile(regex_str, re.DOTALL)
 
-    def feed_token(self, token: str):
+    def feed_token(self, token: str) -> Iterator[Any]:
         """
         Feed a token to the extractor.
 
@@ -346,6 +351,13 @@ class StreamingPatternExtractor:
         - ("pattern_content", pattern_name, content_chunk)
         - ("pattern_end", pattern_name, pattern_type, full_content, ToolCall|None)
         """
+
+        if len(self._buffer) + len(token) > self._max_buffer_size:
+            raise ValueError(
+                f"Pattern buffer exceeded maximum size of {self._max_buffer_size} bytes. "
+                f"Current: {len(self._buffer)}, token: {len(token)}"
+            )
+
         self._buffer += token
 
         for pattern in self._pattern_set.patterns:
@@ -397,7 +409,7 @@ class StreamingPatternExtractor:
         quantifier = ".*" if pattern.greedy else ".*?"
         return f"{start_escaped}({quantifier}){end_escaped}"
 
-    def _stream_incomplete_patterns(self):
+    def _stream_incomplete_patterns(self) -> Iterator[Any]:
         """
         Detect and stream content for incomplete patterns (start tag present, no end tag yet).
         Yields pattern_start and pattern_content events.

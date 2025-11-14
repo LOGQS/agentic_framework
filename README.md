@@ -1,6 +1,6 @@
 # Agentic Framework
 
-A production-ready agentic framework with versioned context, persistent storage, and streaming-first architecture.
+An agentic framework with versioned context, persistent storage, and streaming-first architecture.
 
 ## Features
 
@@ -237,6 +237,28 @@ pytest -m asyncio         # Async tests only
 ```
 
 325+ tests with >90% coverage. See `tests/README.md` for details.
+
+## Security Considerations
+
+**Tool Execution:**
+- Tools execute with the same permissions as the Python process
+- Always review tool implementations before registering them
+- Use sandboxing (Docker, separate processes) for untrusted code
+- The framework provides APIs but does not restrict tool behavior by design
+
+**Buffer Limits:**
+- `StreamingPatternExtractor` enforces a 10MB buffer limit by default
+- Configure via `max_buffer_size` parameter if needed
+
+**Context History:**
+- `get_history()` defaults to 100 versions to prevent memory exhaustion
+- Increase limit explicitly if you need full history access
+
+**Best Practices:**
+- Validate tool inputs before execution
+- Use timeouts on all tool calls (enforced by framework)
+- Review LLM outputs before executing extracted tools
+- Use `on_tool_detected` callback for human-in-the-loop approval
 
 ## Design Principles
 

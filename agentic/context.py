@@ -202,7 +202,7 @@ class ContextManager:
     def next_iteration(self) -> int:
         return self._iteration.next()
 
-    def get_history(self, key: str, max_versions: int | None = None) -> list[ContextRecord]:
+    def get_history(self, key: str, max_versions: int = 100) -> list[ContextRecord]:
         latest_key = f"context:{key}:latest".encode('utf-8')
         latest_value = self._storage.get(latest_key)
 
@@ -217,7 +217,7 @@ class ContextManager:
             if record is not None:
                 history.append(record)
 
-            if max_versions is not None and len(history) >= max_versions:
+            if len(history) >= max_versions:
                 break
 
         return history
