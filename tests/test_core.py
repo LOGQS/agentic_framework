@@ -335,7 +335,7 @@ class TestAgentConfig:
             max_tokens=8192,
             temperature=0.5,
             tools_allowed=["tool1", "tool2"],
-            input_mapping=[("context1", "prepend")],
+            input_mapping=[{"context_key": "context1", "order": 0}],
             output_mapping=[("output1", "set_latest")],
             pattern_set="custom",
             auto_increment_iteration=False,
@@ -356,7 +356,7 @@ class TestAgentConfig:
 
     def test_agent_config_mappings(self):
         """Test AgentConfig input and output mappings."""
-        input_map = [("system", "prepend"), ("user", "append")]
+        input_map = [{"context_key": "system", "order": 0}, {"context_key": "user", "order": 1}]
         output_map = [("result", "set_latest"), ("history", "append_version")]
         config = AgentConfig(
             agent_id="agent3",

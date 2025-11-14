@@ -12,8 +12,11 @@ from .core import (
     ExtractedSegments,
     AgentStepResult,
     AgentConfig,
+    PromptType,
+    PromptObject,
     now_timestamp,
-    new_uuid
+    new_uuid,
+    create_message_prompt_builder
 )
 
 # Event system
@@ -95,8 +98,11 @@ __all__ = [
     "ExtractedSegments",
     "AgentStepResult",
     "AgentConfig",
+    "PromptType",
+    "PromptObject",
     "now_timestamp",
     "new_uuid",
+    "create_message_prompt_builder",
     # Events
     "BaseEvent",
     "AgentEvent",

@@ -3,9 +3,15 @@ Core types, enums, and data structures used throughout the framework.
 """
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import Any, Callable, TYPE_CHECKING
 import time
 import uuid
+
+if TYPE_CHECKING:
+    from .context import ContextManager
+
+
+PromptType = Any
 
 
 class ProcessingMode(Enum):
@@ -30,6 +36,12 @@ class AgentStatus(Enum):
     DONE = "done"
     ERROR = "error"
 
+@dataclass
+class PromptObject:
+    """Structured prompt with system instruction and message list."""
+    system: str | None = None
+    messages: list[dict[str, Any]] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 @dataclass
 class ToolCall:
@@ -82,15 +94,16 @@ class AgentConfig:
     max_tokens: int = 4096
     temperature: float = 0.7
     tools_allowed: list[str] = field(default_factory=list)
-    input_mapping: list[tuple[str, str]] = field(default_factory=list)
+    input_mapping: list[dict[str, Any]] = field(default_factory=list)
     output_mapping: list[tuple[str, str]] = field(default_factory=list)
     pattern_set: str | None = None
     auto_increment_iteration: bool = True
-    processing_mode: ProcessingMode | None = None  # None means inherit from parent (e.g., LogicRunner)
+    processing_mode: ProcessingMode | None = None  # None means inherit from parent 
     incremental_context_writes: bool = False  # Enable context updates during streaming
     stream_pattern_content: bool = False  # Enable streaming pattern content before end tag (default: wait for complete patterns)
     on_tool_detected: Any = None  # Callable[[ToolCall], bool] - callback to control tool execution (default: auto-execute)
     concurrent_tool_execution: bool = False  # Execute tools concurrently during LLM streaming (default: execute after LLM completes)
+    prompt_builder: Callable[["ContextManager", "AgentConfig", str | None], PromptType] | None = None
 
 
 def now_timestamp() -> float:
@@ -99,3 +112,47 @@ def now_timestamp() -> float:
 
 def new_uuid() -> str:
     return str(uuid.uuid4())
+
+
+def create_message_prompt_builder() -> Callable[["ContextManager", "AgentConfig", str | None], PromptObject]:
+    """
+    Reference prompt builder that constructs PromptObject from input_mapping.
+
+    Routes entries with role="system" to system field, others to messages list.
+    Sorts by "order" field. Supports "literal:" prefix for static content.
+    """
+    def builder(context: "ContextManager", config: "AgentConfig", user_input: str | None) -> PromptObject:
+        system_parts = []
+        messages = []
+
+        mapping_entries = [m for m in config.input_mapping if isinstance(m, dict)]
+
+        for mapping in sorted(mapping_entries, key=lambda x: x.get("order", 0)):
+            context_key = mapping.get("context_key", "")
+            role = mapping.get("role", "user")
+
+            if context_key.startswith("literal:"):
+                content = context_key[8:]
+            else:
+                record = context.get(context_key)
+                if record is None:
+                    continue
+                try:
+                    content = record.value.decode('utf-8')
+                except (UnicodeDecodeError, AttributeError):
+                    continue
+
+            if role == "system":
+                system_parts.append(content)
+            else:
+                messages.append({"role": role, "content": content})
+
+        if user_input:
+            messages.append({"role": "user", "content": user_input})
+
+        return PromptObject(
+            system="\n\n".join(system_parts) if system_parts else None,
+            messages=messages
+        )
+
+    return builder

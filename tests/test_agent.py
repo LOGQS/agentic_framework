@@ -945,7 +945,7 @@ class TestAgentInputMappingLiteral:
         text should be prepended to the prompt.
         """
         config = agent.get_config()
-        config.input_mapping = [("literal:System: You are a helpful assistant.", "prepend")]
+        config.input_mapping = [{"context_key": "literal:System: You are a helpful assistant.", "order": 0}]
         agent.set_config(config)
 
         mock_llm_provider.set_response("I am helpful.")
@@ -964,7 +964,7 @@ class TestAgentInputMappingLiteral:
         text should be appended to the prompt.
         """
         config = agent.get_config()
-        config.input_mapping = [("literal:Please respond concisely.", "append")]
+        config.input_mapping = [{"context_key": "literal:Please respond concisely.", "order": 1}]
         agent.set_config(config)
 
         mock_llm_provider.set_response("Okay.")
@@ -985,9 +985,9 @@ class TestAgentInputMappingLiteral:
 
         config = agent.get_config()
         config.input_mapping = [
-            ("literal:System: Be helpful.", "prepend"),
-            ("user_name", "append"),
-            ("literal:End of instructions.", "append")
+            {"context_key": "literal:System: Be helpful.", "order": 0},
+            {"context_key": "user_name", "order": 1},
+            {"context_key": "literal:End of instructions.", "order": 2}
         ]
         agent.set_config(config)
 

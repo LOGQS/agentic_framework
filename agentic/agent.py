@@ -7,7 +7,7 @@ import time
 import asyncio
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 
-from .core import AgentConfig, AgentStatus, AgentStepResult, ExtractedSegments, ToolResult, ToolCall, ProcessingMode, new_uuid
+from .core import AgentConfig, AgentStatus, AgentStepResult, ExtractedSegments, ToolResult, ToolCall, ProcessingMode, new_uuid, PromptType
 from .context import ContextManager
 from .patterns import PatternRegistry, PatternExtractor, StreamingPatternExtractor
 from .tools import ToolRegistry
@@ -26,11 +26,13 @@ class LLMProvider(Protocol):
     Providers can implement streaming or non-streaming generation.
     If stream() is not implemented, framework will simulate streaming
     by emitting the full generate() output as a single token.
+
+    The prompt parameter accepts PromptType (Any). Providers interpret structure.
     """
 
     def generate(
         self,
-        prompt: str,
+        prompt: PromptType,
         max_tokens: int,
         temperature: float,
         **kwargs
@@ -40,7 +42,7 @@ class LLMProvider(Protocol):
 
     async def stream(
         self,
-        prompt: str,
+        prompt: PromptType,
         max_tokens: int,
         temperature: float,
         **kwargs
@@ -519,27 +521,23 @@ class AgentRunner:
             error_type=error_type
         )
 
-    def _build_prompt(self, user_input: str | None) -> str:
-        """Build prompt from context based on input_mapping rules."""
+    def _build_prompt(self, user_input: str | None) -> PromptType:
+        """Build prompt from context. Delegates to prompt_builder if configured, else concatenates input_mapping entries."""
         config = self._agent.get_config()
-        parts = []
 
-        for context_key, position in config.input_mapping:
+        if config.prompt_builder is not None:
+            return config.prompt_builder(self._agent.context, config, user_input)
+
+        parts = []
+        for entry in config.input_mapping:
+            context_key = entry.get("context_key", "")
             if context_key.startswith("literal:"):
-                literal_text = context_key[8:]
-                if position == "prepend":
-                    parts.insert(0, literal_text)
-                else:
-                    parts.append(literal_text)
+                parts.append(context_key[8:])
             else:
                 record = self._agent.context.get(context_key)
                 if record is not None:
                     try:
-                        text = record.value.decode('utf-8')
-                        if position == "prepend":
-                            parts.insert(0, text)
-                        else:
-                            parts.append(text)
+                        parts.append(record.value.decode('utf-8'))
                     except UnicodeDecodeError:
                         pass
 

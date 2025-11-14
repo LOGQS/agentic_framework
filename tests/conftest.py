@@ -206,7 +206,7 @@ def agent_config() -> AgentConfig:
         max_tokens=1000,
         temperature=0.7,
         tools_allowed=["echo", "calculator"],
-        input_mapping=[("system_prompt", "prepend")],
+        input_mapping=[{"context_key": "system_prompt", "order": 0}],
         output_mapping=[("last_output", "set_latest")],
         pattern_set="default",
         auto_increment_iteration=True,
