@@ -155,7 +155,9 @@ class RateLimiter:
                 try:
                     await asyncio.wait_for(self._condition.wait(), timeout=min(wait_time, 0.1))
                 except asyncio.TimeoutError:
-                    pass
+                    pass  
+            else:
+                self._condition.notify_all()
 
     async def try_acquire(self, tokens: int = 1) -> bool:
         """

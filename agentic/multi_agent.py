@@ -316,7 +316,7 @@ class ParallelPattern:
             merged = self._merge_concat(results)
             yield StatusEvent(AgentStatus.OK, "Results concatenated")
             yield StepCompleteEvent(AgentStepResult(
-                status=AgentStatus.OK,
+                status=AgentStatus.DONE,
                 raw_output=merged,
                 segments=ExtractedSegments(response=merged),
                 tool_results=[],
