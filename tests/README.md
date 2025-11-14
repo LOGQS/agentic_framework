@@ -1,28 +1,28 @@
 # Test Suite
 
-Comprehensive test suite with 550+ tests covering all framework components including validation, resilience, and multi-agent patterns.
+Comprehensive test suite with 700+ tests covering all framework components including validation, resilience, multi-agent orchestration, and security features.
 
 ## Structure
 
 ```
 tests/
-├── conftest.py                              # Shared fixtures
+├── conftest.py                              # Shared fixtures and test utilities
 ├── mock_provider.py                         # MockLLMProvider for testing
-├── test_core.py                             # Enums and data classes (50+ tests)
+├── test_core.py                             # Core types and utilities (70+ tests)
 ├── test_validation.py                       # Validation system (40+ tests)
 ├── test_storage.py                          # RocksDB storage (45+ tests)
-├── test_context.py                          # Context versioning (55+ tests)
-├── test_events.py                           # Event system (60+ tests)
-├── test_patterns.py                         # Pattern extraction (35+ tests)
-├── test_tools.py                            # Tool execution (35+ tests)
+├── test_context.py                          # Context versioning (65+ tests)
+├── test_events.py                           # Event system (85+ tests)
+├── test_patterns.py                         # Pattern extraction (40+ tests)
+├── test_tools.py                            # Tool execution (40+ tests)
 ├── test_agent.py                            # Agent execution (90+ tests)
-├── test_agent_streaming_integration.py      # Agent streaming integration (40+ tests)
-├── test_logic.py                            # Logic control flow (55+ tests)
+├── test_agent_streaming_integration.py      # Streaming workflows (20+ tests)
+├── test_logic.py                            # Logic control flow (50+ tests)
 ├── test_logic_evaluation_points.py          # Logic evaluation points (15+ tests)
-├── test_resilience.py                       # Retry and rate limiting (50+ tests)
-├── test_multi_agent.py                      # Multi-agent patterns (50+ tests)
-├── test_multi_prompt.py                     # Multi-prompt support (45+ tests)
-└── test_security_fixes.py                   # Security enhancements (15+ tests)
+├── test_resilience.py                       # Retry and rate limiting (60+ tests)
+├── test_multi_agent.py                      # Multi-agent coordination (60+ tests)
+├── test_multi_prompt.py                     # Multi-prompt and PromptObject (50+ tests)
+└── test_security_fixes.py                   # Security features (15+ tests)
 ```
 
 ## Running Tests
@@ -57,67 +57,71 @@ pytest --pdb
 
 | Module | Test Files | Key Coverage |
 |--------|------------|--------------|
-| **core.py** | test_core.py | ProcessingMode, SegmentType, AgentStatus enums; ToolCall, ToolResult, AgentConfig dataclasses; PromptObject support; now_timestamp(), new_uuid() |
-| **validation.py** | test_validation.py | ValidatorRegistry, simple_validator, passthrough_validator, custom validators, error reporting |
-| **storage.py** | test_storage.py | RocksDBStorage CRUD, DB identification, path resolution, prefix iteration |
-| **context.py** | test_context.py | IterationManager, ContextManager, versioning, history, tombstone deletion, string value auto-encoding |
-| **events.py** | test_events.py | All 16 event types (LLM, tools, patterns, retry, rate limit, health), timestamps, step IDs |
-| **patterns.py** | test_patterns.py | PatternExtractor (batch), StreamingPatternExtractor (incremental), registry, malformed pattern handling |
-| **tools.py** | test_tools.py | Tool execution modes (PROCESS/THREAD/ASYNC), timeouts, streaming, registry, validation integration |
-| **agent.py** | test_agent.py, test_agent_streaming_integration.py, test_multi_prompt.py | AgentRunner batch/streaming, tool execution, context updates, error handling, PromptObject support, multi-prompt workflows |
-| **logic.py** | test_logic.py, test_logic_evaluation_points.py | LogicRunner, stop/loop-until conditions, context health checks, evaluation points, helper functions |
-| **resilience.py** | test_resilience.py | RetryConfig with backoff strategies, RateLimiter token bucket, retry_stream, rate_limited_stream, resilient_stream |
-| **multi_agent.py** | test_multi_agent.py | AgentChain, SupervisorPattern, ParallelPattern, DebatePattern, configuration options |
-| **Security** | test_security_fixes.py | Buffer overflow protection, context history limits, validation enforcement |
+| **core.py** | test_core.py | ProcessingMode, SegmentType, AgentStatus enums; ToolCall, ToolResult, AgentConfig, PromptObject dataclasses; serialize_tool_output, output_to_string, now_timestamp, new_uuid |
+| **validation.py** | test_validation.py | ValidatorRegistry, simple_validator, passthrough_validator, custom validators, required fields, type checking, string/numeric constraints |
+| **storage.py** | test_storage.py | RocksDBStorage initialization, CRUD operations, DB identification and validation, path resolution with collision avoidance, prefix iteration, performance characteristics |
+| **context.py** | test_context.py | IterationManager, ContextManager, versioning, history tracking with limits, tombstone deletion, update() for incremental writes, list_keys with prefix filtering |
+| **events.py** | test_events.py | All 16 event types (LLM, tool, pattern, validation, retry, rate limit, context health), timestamps, step_id tracking, explicit vs auto timestamps |
+| **patterns.py** | test_patterns.py | Pattern and PatternSet, PatternRegistry, PatternExtractor (batch), StreamingPatternExtractor (incremental with buffer limits), tool call parsing (JSON/line format), greedy vs non-greedy matching |
+| **tools.py** | test_tools.py | Tool execution modes (PROCESS/THREAD/ASYNC), timeouts, streaming support, ToolRegistry operations, create_tool helper, error handling for different exception types |
+| **agent.py** | test_agent.py, test_agent_streaming_integration.py | Agent configuration, AgentRunner batch/streaming, tool execution (allowed/not allowed/not found), context updates, pattern extraction, event ordering, lifecycle events |
+| **logic.py** | test_logic.py, test_logic_evaluation_points.py | LogicConfig and LogicCondition, max iterations, stop/loop-until conditions, break_on_error, evaluation points (llm_token, tool_detected, tool_finished, any_event, pattern_start, step_complete), helper functions |
+| **resilience.py** | test_resilience.py | RetryConfig with backoff strategies (exponential/linear/constant), jitter, RateLimiter token bucket, retry_stream, rate_limited_stream, resilient_stream, event emission |
+| **multi_agent.py** | test_multi_agent.py | AgentChain with pass modes (response/full_context/tool_results), custom transform functions, SupervisorPattern with delegation, ParallelPattern with concurrent execution and merge strategies, DebatePattern with consensus |
+| **multi_prompt.py** | test_multi_prompt.py | PromptObject dataclass, create_message_prompt_builder, role-based routing (system/user/assistant), multiple system entries, literal prefix, user_input handling |
+| **Security** | test_security_fixes.py | Buffer overflow protection in StreamingPatternExtractor (default 10MB limit), context history default limit (100 versions), custom buffer and history sizes |
 
 ## Fixtures (conftest.py)
 
-- `temp_dir` - Temporary directory per test (cleanup automatic)
+- `temp_dir` - Temporary directory per test with automatic cleanup
+- `storage_config` - StorageConfig with temporary directory
 - `storage` - Initialized RocksDBStorage with unique DB per test
 - `iteration_manager` - IterationManager instance
 - `context_manager` - ContextManager with IterationManager
-- `pattern_registry` - PatternRegistry with default patterns
-- `tool_registry` - ToolRegistry with echo/calculator/validation test tools
-- `validator_registry` - ValidatorRegistry with built-in validators
-- `mock_llm_provider` - MockLLMProvider for testing (configurable responses)
-- `agent_config` - Pre-configured AgentConfig for testing
-- `agent` - Fully configured Agent instance
-- `agent_runner` - AgentRunner instance
-- `logic_runner` - LogicRunner instance with test configuration
+- `pattern_registry` - PatternRegistry with default patterns registered
+- `tool_registry` - ToolRegistry with echo and calculator test tools
+- `mock_llm_provider` - MockLLMProvider with configurable responses and streaming simulation
+- `agent_config` - AgentConfig with tools_allowed, input/output mappings, pattern_set
+- `agent` - Fully configured Agent instance with all dependencies
+- `agent_runner` - AgentRunner instance for batch and streaming execution
+- `sample_pattern_set` - Custom PatternSet for testing pattern variations
 
 ## Test Categories
 
 **Unit Tests**: Individual functions/classes in isolation (< 1s per test)
-- Enums, dataclasses, utility functions
-- Event creation and timestamps
-- Validator functions
-- Retry backoff calculations
+- Enums, dataclasses, utility functions (ProcessingMode, SegmentType, AgentStatus, ToolCall, ToolResult, PromptObject)
+- Event creation with timestamps and step IDs
+- Validator functions (simple_validator, passthrough_validator)
+- Backoff calculations (exponential, linear, constant with jitter)
+- Pattern and PatternSet creation
 
 **Integration Tests**: Component interactions (1-5s per test)
-- Agent execution with tools and validation
-- Logic runner with context health monitoring
-- Context persistence and versioning
-- Multi-agent pattern orchestration
-- Resilient streams with retry and rate limiting
+- Agent execution with tool calls, validation, and context updates
+- Logic runner with stop/loop-until conditions and evaluation points
+- Context versioning, history tracking, and tombstone deletion
+- Storage CRUD operations with prefix iteration
+- Multi-agent patterns (AgentChain, SupervisorPattern, ParallelPattern, DebatePattern)
+- Resilient streams combining retry and rate limiting
 
-**Async Tests**: `@pytest.mark.asyncio`
-- Streaming pattern extraction with buffer limits
-- Streaming tool execution
-- Agent/logic streaming with event handling
-- Multi-agent parallel execution
-- Rate limited async operations
+**Async Tests**: Marked with `@pytest.mark.asyncio`
+- Streaming pattern extraction with incremental events and buffer limits
+- Tool streaming (run_stream) for tools that support incremental output
+- Agent streaming (step_stream) with event ordering and pattern lifecycle
+- Logic streaming (run_stream) with evaluation at different points
+- Multi-agent parallel execution with timeouts
+- Rate limited async operations with token bucket
 
-**Security Tests**: `test_security_fixes.py`
-- Buffer overflow protection
-- Context history limits
-- Input validation enforcement
+**Security Tests**: Protection mechanisms in `test_security_fixes.py`
+- Buffer overflow protection in StreamingPatternExtractor (default 10MB, configurable)
+- Context history limits (default 100 versions, configurable)
+- Validation enforcement for tool arguments
 
 ## Coverage Metrics
 
 - **Overall**: >90% across all modules
 - **Critical paths**: 100% (storage, context, agent execution, validation)
-- **Total**: 550+ tests, ~9000 lines of test code
-- **New modules**: Validation (100%), Resilience (95%), Multi-agent (92%)
+- **Total**: 700+ tests, ~10000 lines of test code
+- **Core modules**: Validation (100%), Resilience (95%), Multi-agent (92%), Security (100%)
 
 ## Writing Tests
 
@@ -157,14 +161,15 @@ class TestComponent:
 ```
 
 Guidelines:
-1. One test, one concept
-2. Arrange-Act-Assert structure
-3. Descriptive names describing what is tested
-4. Use fixtures for common setup
-5. Test edge cases and error conditions
+1. One test, one concept - each test should verify a single behavior
+2. Arrange-Act-Assert structure for clarity
+3. Descriptive names that describe what is tested (not how)
+4. Use fixtures for common setup to reduce duplication
+5. Test edge cases, boundary conditions, and error paths
 6. Use `@pytest.mark.asyncio` for async tests
-7. Clean up resources (fixtures handle this automatically)
-8. Keep tests independent and idempotent
+7. Clean up resources properly (fixtures handle this automatically)
+8. Keep tests independent and idempotent - no shared state between tests
+9. Verify not just success but correct behavior (check return values, events, state changes)
 
 ## Troubleshooting
 

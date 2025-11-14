@@ -1,19 +1,19 @@
 # Agentic Framework
 
-An agentic framework with versioned context, persistent storage, streaming-first architecture, and multi-agent orchestration.
+A framework for building LLM agents with versioned context, persistent storage, streaming execution, and multi-agent orchestration.
 
 ## Features
 
 - **Streaming-First**: Real-time event streams for LLM generation, pattern detection, and tool execution
-- **16 Event Types**: Comprehensive observability including LLM, tools, patterns, retry, rate limiting, and context health monitoring
-- **Persistent Context**: Versioned key-value store in RocksDB with automatic timestamps and iteration tracking
-- **Pattern Extraction**: Batch and streaming extraction with incremental detection and malformed pattern handling
-- **Multi-Mode Tools**: Execute tools in PROCESS, THREAD, or ASYNC modes with timeout handling and streaming support
-- **Validation System**: Format-agnostic validation (simple, JSON Schema, custom) with extensible validator registry
-- **Resilience**: Built-in retry logic with exponential backoff and token bucket rate limiting
-- **Multi-Agent Patterns**: Chain, Supervisor-Worker, Parallel, and Debate patterns for agent orchestration
-- **Flexible Logic**: Conditional loops with pattern-based, regex-based, or context-based conditions and context health monitoring
-- **Type-Safe**: Full type hints throughout the codebase
+- **16 Event Types**: Complete observability across LLM, tools, patterns, validation, retry, rate limiting, and context health
+- **Persistent Context**: Versioned key-value store backed by RocksDB with automatic timestamps and iteration tracking
+- **Pattern Extraction**: Regex-based extraction with streaming support, incremental detection, and malformed pattern handling
+- **Multi-Mode Tools**: Execute tools in PROCESS, THREAD, or ASYNC modes with timeout handling and streaming output
+- **Validation System**: Extensible validation registry supporting simple validators, JSON Schema, or custom formats
+- **Resilience**: Retry logic with exponential backoff and token bucket rate limiting
+- **Multi-Agent Patterns**: Chain, Supervisor-Worker, Parallel, and Debate patterns for orchestrating multiple agents
+- **Flexible Logic Flows**: Conditional loops with pattern-based, regex-based, or context-based conditions
+- **Type-Safe**: Full type hints throughout
 
 ## Installation
 
@@ -31,7 +31,7 @@ from agentic import (
     PatternRegistry, create_default_pattern_set,
     ToolRegistry, create_tool,
     AgentConfig, Agent, AgentRunner,
-    ProcessingMode
+    ProcessingMode, create_message_prompt_builder
 )
 
 # Initialize storage and context
@@ -53,33 +53,40 @@ def search_web(inputs: dict) -> dict:
 tools.register(create_tool(
     name="search_web",
     func=search_web,
-    input_schema={"query": "string"},
+    input_schema={
+        "validator": "simple",
+        "required": ["query"],
+        "fields": {
+            "query": {"type": "str"}
+        }
+    },
     timeout_seconds=30.0,
     processing_mode=ProcessingMode.THREAD
 ))
 
-# Create LLM provider
+# Create LLM provider (must implement LLMProvider protocol)
 class MyLLMProvider:
-    def generate(self, prompt: str, max_tokens: int, temperature: float, **kwargs) -> str:
+    def generate(self, prompt, **kwargs) -> str:
         # Your LLM API call here
         pass
 
-    async def stream(self, prompt: str, max_tokens: int, temperature: float, **kwargs):
-        # Optional: stream tokens for real-time UIs
-        text = self.generate(prompt, max_tokens, temperature, **kwargs)
+    async def stream(self, prompt, **kwargs):
+        # Stream tokens for real-time execution
+        text = self.generate(prompt, **kwargs)
         yield text
 
 provider = MyLLMProvider()
 
-# Configure and run agent (batch mode)
+# Configure and run agent
 agent_config = AgentConfig(
     agent_id="assistant",
-    provider="custom",
-    model="gpt-4",
     tools_allowed=["search_web"],
-    input_mapping=[("system_prompt", "prepend")],
+    input_mapping=[
+        {"context_key": "literal:You are a helpful assistant.", "role": "system", "order": 0}
+    ],
     output_mapping=[("last_output", "set_latest")],
-    pattern_set="default"
+    pattern_set="default",
+    prompt_builder=create_message_prompt_builder()
 )
 
 agent = Agent(agent_config, context, patterns, tools, provider)
@@ -130,33 +137,41 @@ agentic/
 - CRUD operations: `get()`, `put()`, `delete()`, `iterate()`
 
 **Context** (`context.py`):
-- `IterationManager`: Global iteration counter with `get()`, `next()`
-- `ContextManager`: Versioned store with `set()`, `get()`, `delete()`, `list_keys()`, `get_history()`
+- `IterationManager`: Global iteration counter with `get()`, `next()`, `register_event()`
+- `ContextManager`: Versioned store with `set()`, `update()`, `get()`, `delete()`, `list_keys()`, `get_history()`, `clear()`
 - `ContextRecord`: `{value, iteration, timestamp, version}`
-- Tombstone deletion for soft deletes
+- `set()` creates new version, `update()` overwrites current version
+- Tombstone deletion for soft deletes with history preservation
 
 **Patterns** (`patterns.py`):
 - `Pattern`: `{name, start_tag, end_tag, segment_type, greedy}`
-- `PatternRegistry`: Persistent pattern set storage
-- `PatternExtractor`: Batch extraction
+- `PatternSet`: Collection of patterns with configuration
+- `PatternRegistry`: Persistent pattern set storage in RocksDB
+- `PatternExtractor`: Batch regex-based extraction
 - `StreamingPatternExtractor`: Incremental token processing with malformed pattern handling
+- Built-in pattern sets: `default`, `json_tools`, `xml_tools`, `backtick_tools`
 
 **Tools** (`tools.py`):
-- `Tool`: Executable with `run()` (batch) and `run_stream()` (streaming)
-- `ToolRegistry`: `register()`, `get()`, `exists()`, `list()`, `unregister()`
-- Multi-mode execution: PROCESS, THREAD, ASYNC
-- Automatic timeout enforcement
+- `Tool`: Executable with `run()` (batch) and `run_stream()` (streaming), supports async callables
+- `ToolDefinition`: Metadata with `input_schema`, `output_schema`, `timeout_seconds`, `processing_mode`
+- `ToolRegistry`: `register()`, `get()`, `exists()`, `list()`, `get_definitions()`, `unregister()`
+- Multi-mode execution: PROCESS, THREAD, ASYNC (inherits from parent if not set)
+- Automatic timeout enforcement and validation integration
 
 **Agent** (`agent.py`):
+- `LLMProvider`: Protocol defining `generate()` and `stream()` methods accepting `PromptType` (Any)
 - `Agent`: Container for config, context, patterns, tools, provider
 - `AgentRunner`: `step()` (batch) and `step_stream()` (streaming)
-- `AgentConfig`: Configuration with 15+ options including `incremental_context_writes`, `stream_pattern_content`, `on_tool_detected`, `concurrent_tool_execution`
+- `AgentConfig`: Configuration with options including `incremental_context_writes`, `stream_pattern_content`, `on_tool_detected`, `concurrent_tool_execution`, `max_partial_buffer_size`, `prompt_builder`
+- `PromptObject`: Structured prompt with `system`, `messages`, and `metadata` fields
+- `create_message_prompt_builder()`: Reference implementation for building PromptObject from input_mapping
 
 **Logic** (`logic.py`):
 - `LogicRunner`: Conditional loops with `run()` (batch) and `run_stream()` (streaming)
-- `LogicCondition`: Pattern/regex/context-based with flexible evaluation points
-- `ContextHealthCheck`: Monitor context size, version count, and growth rate
-- Helpers: `loop_n_times()`, `loop_until_pattern()`, `loop_until_regex()`, `stop_on_error()`
+- `LogicCondition`: Pattern/regex/context-based conditions with evaluation points (`auto`, `llm_token`, `llm_complete`, `tool_detected`, `tool_finished`, `step_complete`, `any_event`)
+- `LogicConfig`: Loop configuration with `max_iterations`, `stop_conditions`, `loop_until_conditions`, `break_on_error`, `context_health_checks`
+- `ContextHealthCheck`: Monitor context size, version count, growth rate with configurable thresholds and actions
+- Helper functions: `loop_n_times()`, `loop_until_pattern()`, `loop_until_regex()`, `stop_on_error()`
 
 **Validation** (`validation.py`):
 - `ValidatorRegistry`: Extensible registry for any validation format
@@ -168,17 +183,22 @@ agentic/
 16 event types: `LLMTokenEvent`, `LLMCompleteEvent`, `PatternStartEvent`, `PatternContentEvent`, `PatternEndEvent`, `StatusEvent`, `ToolStartEvent`, `ToolOutputEvent`, `ToolEndEvent`, `ToolValidationEvent`, `ContextWriteEvent`, `ErrorEvent`, `StepCompleteEvent`, `RetryEvent`, `RateLimitEvent`, `ContextHealthEvent`
 
 **Resilience** (`resilience.py`):
-- `RetryConfig`: Exponential/linear/constant backoff with jitter
-- `RateLimiter`: Token bucket algorithm with per-second/minute/hour limits
-- `retry_stream()`: Universal retry wrapper for any async iterator
-- `rate_limited_stream()`: Universal rate limiting wrapper
-- `resilient_stream()`: Combined retry + rate limiting
+- `RetryConfig`: Exponential/linear/constant backoff with jitter and configurable retry exceptions
+- `RateLimitConfig`: Per-second/minute/hour limits with burst capacity
+- `RateLimiter`: Token bucket implementation with `acquire()`, `try_acquire()`, `tokens_available()`
+- `retry_stream()`: Universal retry wrapper for any async iterator with RetryEvent emission
+- `rate_limited_stream()`: Universal rate limiting wrapper with RateLimitEvent emission
+- `resilient_stream()`: Combined retry + rate limiting for any operation
 
 **Multi-Agent** (`multi_agent.py`):
-- `AgentChain`: Sequential execution with configurable output passing
-- `SupervisorPattern`: Supervisor delegates tasks to specialized workers
-- `ParallelPattern`: Parallel execution with result merging
-- `DebatePattern`: Multi-round debate with consensus detection
+- `AgentChain`: Sequential execution with configurable output passing (`response`, `full_context`, `tool_results`, `custom`)
+- `AgentChainConfig`: Configure pass mode, context templates, and custom transform functions
+- `SupervisorPattern`: Supervisor agent delegates tasks to specialized worker agents with delegation detection
+- `SupervisorConfig`: Configure delegation pattern name, worker/task keys, max rounds
+- `ParallelPattern`: Parallel agent execution with result merging (concat, agent-based, voting)
+- `ParallelConfig`: Configure merge strategy, templates, and timeout
+- `DebatePattern`: Multi-round debate between agents with consensus detection
+- `DebateConfig`: Configure max rounds, consensus detector, and prompt templates
 
 ## Advanced Usage
 
@@ -189,16 +209,23 @@ agentic/
 context.set("key", b"value1")  # version 1
 context.set("key", b"value2")  # version 2
 
+# Update overwrites current version (for streaming/incremental writes)
+context.update("key", b"partial_value")  # version 2 (overwrites)
+
 # Get latest or specific version
 latest = context.get("key")
 v1 = context.get("key", version=1)
 
-# History
-history = context.get_history("key", max_versions=10)
+# History (returns ContextRecord objects)
+history = context.get_history("key", max_versions=100)
 
-# Delete (creates tombstone)
+# Delete (creates tombstone, preserves history)
 context.delete("key")
 assert context.get("key") is None
+
+# List all keys with optional prefix
+all_keys = context.list_keys()
+llm_keys = context.list_keys(prefix="llm_output:")
 ```
 
 ### Custom Patterns
@@ -226,7 +253,22 @@ logic_config = LogicConfig(
     logic_id="main_loop",
     max_iterations=10,
     stop_conditions=[
-        LogicCondition("default", "DONE", "regex", "response", "llm_complete")
+        LogicCondition(
+            pattern_set="default",
+            pattern_name="DONE",
+            match_type="regex",
+            target="response",
+            evaluation_point="llm_complete"
+        )
+    ],
+    loop_until_conditions=[
+        LogicCondition(
+            pattern_set="default",
+            pattern_name="complete",
+            match_type="contains",
+            target="response",
+            evaluation_point="auto"  # auto-detects best evaluation point
+        )
     ],
     break_on_error=True
 )
@@ -251,21 +293,29 @@ tools.register(create_tool(
     func=calculate_fn,
     input_schema={
         "validator": "simple",
+        "required": ["x", "y"],
         "fields": {
-            "x": {"type": "number", "required": True},
-            "y": {"type": "number", "required": True},
-            "op": {"type": "string", "enum": ["+", "-", "*", "/"]}
-        }
+            "x": {"type": "float", "min": 0},
+            "y": {"type": "float", "min": 0},
+            "op": {"type": "str", "pattern": "^[+\\-*/]$"}
+        },
+        "allow_extra_fields": False
     }
 ))
 
 # Custom validator
 def my_validator(value: Any, schema: dict) -> tuple[bool, list[ValidationError]]:
+    errors = []
     # Your validation logic
-    return True, []
+    if not isinstance(value, dict):
+        errors.append(ValidationError("_root", "Expected dict"))
+    return len(errors) == 0, errors
 
 registry = ValidatorRegistry()
 registry.register("my_format", my_validator)
+
+# Use in tool registry
+tools_with_validation = ToolRegistry(validator_registry=registry)
 ```
 
 ### Retry and Rate Limiting
@@ -314,7 +364,12 @@ async for item in resilient_stream(
 ### Multi-Agent Patterns
 
 ```python
-from agentic import AgentChain, AgentChainConfig, SupervisorPattern, ParallelPattern
+from agentic import (
+    AgentChain, AgentChainConfig,
+    SupervisorPattern, SupervisorConfig,
+    ParallelPattern, ParallelConfig,
+    DebatePattern, DebateConfig
+)
 
 # Sequential chain
 chain = AgentChain(
@@ -323,7 +378,11 @@ chain = AgentChain(
         ("writer", writing_agent),
         ("editor", editing_agent)
     ],
-    config=AgentChainConfig(pass_mode="response")
+    config=AgentChainConfig(
+        pass_mode="response",  # or "full_context", "tool_results", "custom"
+        prepend_context=True,
+        context_template="Previous agent ({agent_id}) output:\n{output}\n\n"
+    )
 )
 
 async for event in chain.execute("Write article about AI"):
@@ -337,12 +396,19 @@ supervisor = SupervisorPattern(
         "research": research_agent,
         "coding": coding_agent,
         "testing": testing_agent
-    }
+    },
+    config=SupervisorConfig(
+        delegation_pattern_name="delegate",
+        worker_key="to",
+        task_key="task",
+        max_delegation_rounds=10
+    )
 )
 
 async for event in supervisor.execute("Build a web scraper"):
     # Supervisor delegates to specialized workers
-    pass
+    if isinstance(event, StatusEvent):
+        print(event.message)
 
 # Parallel execution with merging
 parallel = ParallelPattern(
@@ -352,18 +418,39 @@ parallel = ParallelPattern(
         "realist": realist_agent
     },
     merger=synthesis_agent,
-    config=ParallelConfig(merge_strategy="agent")
+    config=ParallelConfig(
+        merge_strategy="agent",  # or "concat", "voting"
+        merge_template="Synthesize these perspectives:\n\n{perspectives}",
+        timeout_seconds=120.0
+    )
 )
 
 async for event in parallel.execute_and_merge("Analyze market trends"):
     # All agents run in parallel, results merged
     pass
+
+# Debate pattern
+debate = DebatePattern(
+    agents={
+        "pro": pro_agent,
+        "con": con_agent
+    },
+    moderator=moderator_agent,
+    config=DebateConfig(
+        max_rounds=5,
+        consensus_detector=None  # Uses default similarity check
+    )
+)
+
+async for event in debate.converge("Should we use microservices?"):
+    if isinstance(event, StatusEvent):
+        print(f"Debate: {event.message}")
 ```
 
 ### Context Health Monitoring
 
 ```python
-from agentic import ContextHealthCheck
+from agentic import ContextHealthCheck, ContextHealthEvent
 
 logic_config = LogicConfig(
     logic_id="monitored_loop",
@@ -371,9 +458,11 @@ logic_config = LogicConfig(
     context_health_checks=[
         ContextHealthCheck(
             check_type="size",
-            key_pattern="llm_output:*",
+            key_pattern="llm_output:*",  # Glob pattern
             threshold=1_000_000,  # 1MB
-            action="warn"  # or "stop"
+            action="warn",  # or "stop"
+            evaluation_point="step_complete",
+            max_versions_limit=10000  # Safety limit for version_count checks
         ),
         ContextHealthCheck(
             check_type="version_count",
@@ -384,23 +473,41 @@ logic_config = LogicConfig(
     ]
 )
 
+logic = LogicRunner(runner, context, patterns, logic_config)
+
 # Health events emitted during execution
 async for event in logic.run_stream("Your task"):
     if isinstance(event, ContextHealthEvent):
         print(f"Health issue: {event.check_type} at {event.key}")
         print(f"Current: {event.current_value}, Threshold: {event.threshold}")
+        print(f"Action: {event.recommended_action}")
 ```
 
 ### Tool Approval Callback
 
 ```python
-def approve_tool(tool_call) -> bool:
-    print(f"Tool '{tool_call.name}' detected")
+from agentic import ToolCall
+
+def approve_tool(tool_call: ToolCall) -> bool:
+    """Callback for human-in-the-loop tool approval."""
+    print(f"Tool '{tool_call.name}' detected with args: {tool_call.arguments}")
     return input("Execute? (y/n): ").lower() == 'y'
 
 agent_config = AgentConfig(
-    ...
-    on_tool_detected=approve_tool  # None = auto-approve
+    agent_id="assistant",
+    tools_allowed=["search_web", "calculate"],
+    on_tool_detected=approve_tool,  # None = auto-approve all
+    concurrent_tool_execution=False  # Set to True to execute tools during LLM streaming
+)
+
+# Concurrent tool execution
+# When enabled, tools are executed as soon as pattern is detected during LLM streaming
+# Otherwise, tools execute after LLM completes
+agent_config_concurrent = AgentConfig(
+    agent_id="assistant",
+    tools_allowed=["search_web"],
+    concurrent_tool_execution=True,  # Execute tools during streaming
+    stream_pattern_content=True  # Stream pattern content as it's detected
 )
 ```
 
@@ -454,13 +561,13 @@ pytest -m asyncio         # Async tests only
 ## Design Principles
 
 1. **Streaming First**: Batch mode wraps streaming for consistency
-2. **Persistence First**: All state in RocksDB with versioning
-3. **Versioning by Default**: Context auto-versioned with full history
-4. **Type Safety**: Full type hints throughout
+2. **Persistence First**: All state stored in RocksDB with versioning
+3. **Versioning by Default**: Context auto-versioned with full history and tombstone deletion
+4. **Type Safety**: Full type hints throughout codebase
 5. **Single Responsibility**: Focused modules with clear boundaries
-6. **Extensibility**: Plugin validation, custom patterns, user-defined tools
-7. **Resilience**: Built-in retry, rate limiting, and health monitoring
-8. **Minimal Dependencies**: Only rocksdict required
+6. **Extensibility**: Pluggable validation, custom patterns, user-defined tools
+7. **Resilience**: Built-in retry, rate limiting, and context health monitoring
+8. **Minimal Dependencies**: Only rocksdict required (Python wrapper for RocksDB)
 
 ## License
 
