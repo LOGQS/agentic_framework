@@ -86,8 +86,6 @@ class TestCreateMessagePromptBuilder:
         builder = create_message_prompt_builder()
         config = AgentConfig(
             agent_id="test",
-            provider="mock",
-            model="test-model",
             input_mapping=[]
         )
         result = builder(context_manager, config, None)
@@ -102,8 +100,6 @@ class TestCreateMessagePromptBuilder:
         builder = create_message_prompt_builder()
         config = AgentConfig(
             agent_id="test",
-            provider="mock",
-            model="test-model",
             input_mapping=[
                 {"context_key": "system_instruction", "role": "system", "order": 0}
             ]
@@ -119,8 +115,6 @@ class TestCreateMessagePromptBuilder:
         builder = create_message_prompt_builder()
         config = AgentConfig(
             agent_id="test",
-            provider="mock",
-            model="test-model",
             input_mapping=[
                 {"context_key": "user_prompt", "role": "user", "order": 0}
             ]
@@ -137,8 +131,6 @@ class TestCreateMessagePromptBuilder:
         builder = create_message_prompt_builder()
         config = AgentConfig(
             agent_id="test",
-            provider="mock",
-            model="test-model",
             input_mapping=[
                 {"context_key": "assistant_msg", "role": "assistant", "order": 0}
             ]
@@ -156,8 +148,6 @@ class TestCreateMessagePromptBuilder:
         builder = create_message_prompt_builder()
         config = AgentConfig(
             agent_id="test",
-            provider="mock",
-            model="test-model",
             input_mapping=[
                 {"context_key": "sys1", "role": "system", "order": 0},
                 {"context_key": "sys2", "role": "system", "order": 1}
@@ -176,8 +166,6 @@ class TestCreateMessagePromptBuilder:
         builder = create_message_prompt_builder()
         config = AgentConfig(
             agent_id="test",
-            provider="mock",
-            model="test-model",
             input_mapping=[
                 {"context_key": "system", "role": "system", "order": 0},
                 {"context_key": "user_msg", "role": "user", "order": 1},
@@ -199,8 +187,6 @@ class TestCreateMessagePromptBuilder:
         builder = create_message_prompt_builder()
         config = AgentConfig(
             agent_id="test",
-            provider="mock",
-            model="test-model",
             input_mapping=[
                 {"context_key": "msg3", "role": "user", "order": 2},
                 {"context_key": "msg1", "role": "user", "order": 0},
@@ -218,8 +204,6 @@ class TestCreateMessagePromptBuilder:
         builder = create_message_prompt_builder()
         config = AgentConfig(
             agent_id="test",
-            provider="mock",
-            model="test-model",
             input_mapping=[
                 {"context_key": "literal:Static system instruction", "role": "system", "order": 0},
                 {"context_key": "literal:Static user message", "role": "user", "order": 1}
@@ -237,8 +221,6 @@ class TestCreateMessagePromptBuilder:
         builder = create_message_prompt_builder()
         config = AgentConfig(
             agent_id="test",
-            provider="mock",
-            model="test-model",
             input_mapping=[
                 {"context_key": "system", "role": "system", "order": 0}
             ]
@@ -255,8 +237,6 @@ class TestCreateMessagePromptBuilder:
         builder = create_message_prompt_builder()
         config = AgentConfig(
             agent_id="test",
-            provider="mock",
-            model="test-model",
             input_mapping=[
                 {"context_key": "exists", "role": "user", "order": 0},
                 {"context_key": "missing", "role": "user", "order": 1}
@@ -275,8 +255,6 @@ class TestCreateMessagePromptBuilder:
         builder = create_message_prompt_builder()
         config = AgentConfig(
             agent_id="test",
-            provider="mock",
-            model="test-model",
             input_mapping=[
                 {"context_key": "invalid", "role": "user", "order": 0},
                 {"context_key": "valid", "role": "user", "order": 1}
@@ -294,8 +272,6 @@ class TestCreateMessagePromptBuilder:
         builder = create_message_prompt_builder()
         config = AgentConfig(
             agent_id="test",
-            provider="mock",
-            model="test-model",
             input_mapping=[
                 {"context_key": "msg", "order": 0}  # No role specified
             ]
@@ -541,7 +517,7 @@ class TestLLMProviderWithPromptType:
     def test_mock_provider_accepts_string(self):
         """Test MockLLMProvider.generate() accepts string prompt."""
         provider = MockLLMProvider(response="Test response")
-        output = provider.generate("String prompt", 100, 0.7)
+        output = provider.generate("String prompt")
         assert output == "Test response"
 
     def test_mock_provider_accepts_prompt_object(self):
@@ -551,7 +527,7 @@ class TestLLMProviderWithPromptType:
             system="System instruction",
             messages=[{"role": "user", "content": "Hello"}]
         )
-        output = provider.generate(prompt_obj, 100, 0.7)
+        output = provider.generate(prompt_obj)
         assert output == "Test response"
 
     @pytest.mark.asyncio
@@ -559,7 +535,7 @@ class TestLLMProviderWithPromptType:
         """Test MockLLMProvider.stream() accepts string prompt."""
         provider = MockLLMProvider(response="Test response", simulate_streaming=False)
         tokens = []
-        async for token in provider.stream("String prompt", 100, 0.7):
+        async for token in provider.stream("String prompt"):
             tokens.append(token)
         assert "".join(tokens) == "Test response"
 
@@ -572,7 +548,7 @@ class TestLLMProviderWithPromptType:
             messages=[{"role": "user", "content": "Hi"}]
         )
         tokens = []
-        async for token in provider.stream(prompt_obj, 100, 0.7):
+        async for token in provider.stream(prompt_obj):
             tokens.append(token)
         assert "".join(tokens) == "Test response"
 

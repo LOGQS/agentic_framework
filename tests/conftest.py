@@ -201,10 +201,6 @@ def agent_config() -> AgentConfig:
     """
     return AgentConfig(
         agent_id="test_agent",
-        provider="mock",
-        model="mock-model",
-        max_tokens=1000,
-        temperature=0.7,
         tools_allowed=["echo", "calculator"],
         input_mapping=[{"context_key": "system_prompt", "order": 0}],
         output_mapping=[("last_output", "set_latest")],

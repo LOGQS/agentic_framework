@@ -27,7 +27,9 @@ from agentic.core import (
     AgentStepResult,
     AgentConfig,
     now_timestamp,
-    new_uuid
+    new_uuid,
+    serialize_tool_output,
+    output_to_string
 )
 
 
@@ -93,10 +95,11 @@ class TestAgentStatus:
     def test_agent_status_members(self):
         """Validate that all expected members exist."""
         statuses = list(AgentStatus)
-        assert len(statuses) == 5
+        assert len(statuses) == 6 
         assert AgentStatus.OK in statuses
         assert AgentStatus.WAITING_FOR_TOOL in statuses
         assert AgentStatus.TOOL_EXECUTED in statuses
+        assert AgentStatus.VALIDATION_ERROR in statuses
         assert AgentStatus.DONE in statuses
         assert AgentStatus.ERROR in statuses
 
@@ -163,10 +166,10 @@ class TestToolResult:
         assert result.iteration == 1
 
     def test_tool_result_failure(self):
-        """Test creating a failed ToolResult."""
+        """Test creating a failed ToolResult with output=None."""
         result = ToolResult(
             name="failed_tool",
-            output={},
+            output=None,
             success=False,
             error_message="Tool execution failed",
             execution_time=0.5,
@@ -174,6 +177,7 @@ class TestToolResult:
         )
         assert result.success is False
         assert result.error_message == "Tool execution failed"
+        assert result.output is None
 
     def test_tool_result_default_values(self):
         """Test that ToolResult has proper default values."""
@@ -203,6 +207,44 @@ class TestToolResult:
             success=True
         )
         assert result.output == b"binary data"
+
+    def test_tool_result_with_none_output(self):
+        """Test ToolResult with None output (no output produced)."""
+        result = ToolResult(
+            name="no_output_tool",
+            output=None,
+            success=True
+        )
+        assert result.output is None
+        assert result.success is True
+
+    def test_tool_result_with_list_output(self):
+        """Test ToolResult with list output (multiple chunks)."""
+        result = ToolResult(
+            name="multi_chunk_tool",
+            output=[{"chunk": 1}, {"chunk": 2}, {"chunk": 3}],
+            success=True
+        )
+        assert isinstance(result.output, list)
+        assert len(result.output) == 3
+        assert result.output[0] == {"chunk": 1}
+
+    def test_tool_result_empty_dict_vs_none(self):
+        """Test that empty dict {} is distinct from None output."""
+        result_empty_dict = ToolResult(
+            name="tool1",
+            output={},
+            success=True
+        )
+        result_none = ToolResult(
+            name="tool2",
+            output=None,
+            success=True
+        )
+
+        assert result_empty_dict.output == {}
+        assert result_none.output is None
+        assert result_empty_dict.output != result_none.output
 
 
 class TestExtractedSegments:
@@ -314,27 +356,20 @@ class TestAgentConfig:
     def test_agent_config_minimal(self):
         """Test creating AgentConfig with required fields only."""
         config = AgentConfig(
-            agent_id="agent1",
-            provider="openai",
-            model="gpt-4"
+            agent_id="agent1"
         )
         assert config.agent_id == "agent1"
-        assert config.provider == "openai"
-        assert config.model == "gpt-4"
-        assert config.max_tokens == 4096  # default
-        assert config.temperature == 0.7  # default
         assert config.tools_allowed == []  # default
         assert config.auto_increment_iteration is True  # default
+        assert config.validate_tool_arguments is True  # default
 
     def test_agent_config_full(self):
         """Test creating AgentConfig with all fields."""
         config = AgentConfig(
             agent_id="agent2",
-            provider="anthropic",
-            model="claude-3",
-            max_tokens=8192,
-            temperature=0.5,
             tools_allowed=["tool1", "tool2"],
+            tool_name_mapping={"public_tool": "internal_tool"},
+            validate_tool_arguments=False,
             input_mapping=[{"context_key": "context1", "order": 0}],
             output_mapping=[("output1", "set_latest")],
             pattern_set="custom",
@@ -342,17 +377,21 @@ class TestAgentConfig:
             processing_mode=ProcessingMode.ASYNC,
             incremental_context_writes=True,
             stream_pattern_content=True,
-            on_tool_detected=lambda x: True
+            on_tool_detected=lambda x: True,
+            concurrent_tool_execution=True,
+            max_partial_buffer_size=5_000_000
         )
-        assert config.max_tokens == 8192
-        assert config.temperature == 0.5
         assert config.tools_allowed == ["tool1", "tool2"]
+        assert config.tool_name_mapping == {"public_tool": "internal_tool"}
+        assert config.validate_tool_arguments is False
         assert config.pattern_set == "custom"
         assert config.auto_increment_iteration is False
         assert config.processing_mode == ProcessingMode.ASYNC
         assert config.incremental_context_writes is True
         assert config.stream_pattern_content is True
         assert config.on_tool_detected is not None
+        assert config.concurrent_tool_execution is True
+        assert config.max_partial_buffer_size == 5_000_000
 
     def test_agent_config_mappings(self):
         """Test AgentConfig input and output mappings."""
@@ -360,8 +399,6 @@ class TestAgentConfig:
         output_map = [("result", "set_latest"), ("history", "append_version")]
         config = AgentConfig(
             agent_id="agent3",
-            provider="test",
-            model="test-model",
             input_mapping=input_map,
             output_mapping=output_map
         )
@@ -467,8 +504,6 @@ class TestEdgeCases:
         """Test AgentConfig with explicitly empty lists."""
         config = AgentConfig(
             agent_id="agent",
-            provider="test",
-            model="test",
             tools_allowed=[],
             input_mapping=[],
             output_mapping=[]
@@ -496,3 +531,192 @@ class TestEdgeCases:
             iteration=999999
         )
         assert result.iteration == 999999
+
+
+class TestSerializeToolOutput:
+    """Tests for serialize_tool_output() helper function."""
+
+    def test_serialize_none(self):
+        """Test serializing None."""
+        result = serialize_tool_output(None)
+        assert result is None
+
+    def test_serialize_dict(self):
+        """Test serializing dict (preserved as-is)."""
+        data = {"key": "value", "number": 42}
+        result = serialize_tool_output(data)
+        assert result == data
+        assert isinstance(result, dict)
+
+    def test_serialize_list(self):
+        """Test serializing list (preserved as-is)."""
+        data = [1, 2, 3, "four"]
+        result = serialize_tool_output(data)
+        assert result == data
+        assert isinstance(result, list)
+
+    def test_serialize_string(self):
+        """Test serializing string (preserved as-is)."""
+        data = "hello world"
+        result = serialize_tool_output(data)
+        assert result == data
+        assert isinstance(result, str)
+
+    def test_serialize_int(self):
+        """Test serializing int (preserved as-is)."""
+        data = 42
+        result = serialize_tool_output(data)
+        assert result == data
+        assert isinstance(result, int)
+
+    def test_serialize_float(self):
+        """Test serializing float (preserved as-is)."""
+        data = 3.14159
+        result = serialize_tool_output(data)
+        assert result == data
+        assert isinstance(result, float)
+
+    def test_serialize_bool(self):
+        """Test serializing bool (preserved as-is)."""
+        result_true = serialize_tool_output(True)
+        result_false = serialize_tool_output(False)
+        assert result_true is True
+        assert result_false is False
+
+    def test_serialize_bytes(self):
+        """Test serializing bytes (converted to hex representation)."""
+        data = b"binary data"
+        result = serialize_tool_output(data)
+        assert isinstance(result, dict)
+        assert result["_type"] == "bytes"
+        assert result["_hex"] == data.hex()
+
+    def test_serialize_other_type(self):
+        """Test serializing unknown type (converted to string)."""
+        class CustomObject:
+            def __str__(self):
+                return "custom object"
+
+        obj = CustomObject()
+        result = serialize_tool_output(obj)
+        assert isinstance(result, dict)
+        assert result["_type"] == "string"
+        assert result["_value"] == "custom object"
+
+    def test_serialize_empty_dict(self):
+        """Test serializing empty dict (preserved)."""
+        result = serialize_tool_output({})
+        assert result == {}
+        assert isinstance(result, dict)
+
+    def test_serialize_empty_list(self):
+        """Test serializing empty list (preserved)."""
+        result = serialize_tool_output([])
+        assert result == []
+        assert isinstance(result, list)
+
+    def test_serialize_empty_string(self):
+        """Test serializing empty string (preserved)."""
+        result = serialize_tool_output("")
+        assert result == ""
+        assert isinstance(result, str)
+
+
+class TestOutputToString:
+    """Tests for output_to_string() helper function."""
+
+    def test_output_to_string_none(self):
+        """Test converting None to string (returns empty string)."""
+        result = output_to_string(None)
+        assert result == ""
+        assert isinstance(result, str)
+
+    def test_output_to_string_string(self):
+        """Test converting string to string (returned as-is)."""
+        data = "hello world"
+        result = output_to_string(data)
+        assert result == "hello world"
+
+    def test_output_to_string_bytes_utf8(self):
+        """Test converting UTF-8 bytes to string."""
+        data = b"hello bytes"
+        result = output_to_string(data)
+        assert result == "hello bytes"
+
+    def test_output_to_string_bytes_invalid_utf8(self):
+        """Test converting invalid UTF-8 bytes (returns hex)."""
+        data = b"\x80\x81\x82"  # Invalid UTF-8
+        result = output_to_string(data)
+        assert result == data.hex()
+
+    def test_output_to_string_dict(self):
+        """Test converting dict to string (JSON formatted)."""
+        data = {"key": "value", "number": 42}
+        result = output_to_string(data)
+        assert isinstance(result, str)
+        assert "key" in result
+        assert "value" in result
+        # Should be valid JSON
+        import json
+        parsed = json.loads(result)
+        assert parsed == data
+
+    def test_output_to_string_list(self):
+        """Test converting list to string (JSON formatted)."""
+        data = [1, 2, 3, "four"]
+        result = output_to_string(data)
+        assert isinstance(result, str)
+        # Should be valid JSON
+        import json
+        parsed = json.loads(result)
+        assert parsed == data
+
+    def test_output_to_string_int(self):
+        """Test converting int to string."""
+        result = output_to_string(42)
+        assert result == "42"
+
+    def test_output_to_string_float(self):
+        """Test converting float to string."""
+        result = output_to_string(3.14)
+        assert result == "3.14"
+
+    def test_output_to_string_bool(self):
+        """Test converting bool to string."""
+        assert output_to_string(True) == "True"
+        assert output_to_string(False) == "False"
+
+    def test_output_to_string_empty_dict(self):
+        """Test converting empty dict to string."""
+        result = output_to_string({})
+        assert result == "{}"
+
+    def test_output_to_string_empty_list(self):
+        """Test converting empty list to string."""
+        result = output_to_string([])
+        assert result == "[]"
+
+    def test_output_to_string_empty_string(self):
+        """Test converting empty string (returned as-is)."""
+        result = output_to_string("")
+        assert result == ""
+
+    def test_output_to_string_empty_bytes(self):
+        """Test converting empty bytes (returns empty string)."""
+        result = output_to_string(b"")
+        assert result == ""
+
+    def test_output_to_string_nested_structure(self):
+        """Test converting complex nested structure."""
+        data = {
+            "users": [
+                {"name": "Alice", "age": 30},
+                {"name": "Bob", "age": 25}
+            ],
+            "count": 2
+        }
+        result = output_to_string(data)
+        assert isinstance(result, str)
+        import json
+        parsed = json.loads(result)
+        assert parsed == data

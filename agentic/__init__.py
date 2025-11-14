@@ -16,7 +16,18 @@ from .core import (
     PromptObject,
     now_timestamp,
     new_uuid,
-    create_message_prompt_builder
+    create_message_prompt_builder,
+    serialize_tool_output,
+    output_to_string
+)
+
+# Validation system
+from .validation import (
+    ValidatorRegistry,
+    ValidationError,
+    ValidatorFunc,
+    simple_validator,
+    passthrough_validator
 )
 
 # Event system
@@ -29,6 +40,7 @@ from .events import (
     ToolStartEvent,
     ToolOutputEvent,
     ToolEndEvent,
+    ToolValidationEvent,
     ContextWriteEvent,
     ErrorEvent,
     PatternStartEvent,
@@ -57,7 +69,10 @@ from .patterns import (
     PatternRegistry,
     PatternExtractor,
     StreamingPatternExtractor,
-    create_default_pattern_set
+    create_default_pattern_set,
+    create_json_tools_pattern_set,
+    create_xml_tools_pattern_set,
+    create_backtick_tools_pattern_set
 )
 
 # Tools
@@ -103,6 +118,14 @@ __all__ = [
     "now_timestamp",
     "new_uuid",
     "create_message_prompt_builder",
+    "serialize_tool_output",
+    "output_to_string",
+    # Validation
+    "ValidatorRegistry",
+    "ValidationError",
+    "ValidatorFunc",
+    "simple_validator",
+    "passthrough_validator",
     # Events
     "BaseEvent",
     "AgentEvent",
@@ -112,6 +135,7 @@ __all__ = [
     "ToolStartEvent",
     "ToolOutputEvent",
     "ToolEndEvent",
+    "ToolValidationEvent",
     "ContextWriteEvent",
     "ErrorEvent",
     "PatternStartEvent",
@@ -132,6 +156,9 @@ __all__ = [
     "PatternExtractor",
     "StreamingPatternExtractor",
     "create_default_pattern_set",
+    "create_json_tools_pattern_set",
+    "create_xml_tools_pattern_set",
+    "create_backtick_tools_pattern_set",
     # Tools
     "Tool",
     "ToolDefinition",

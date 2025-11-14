@@ -2,13 +2,16 @@
 Tool abstraction with multi-mode execution support.
 """
 from dataclasses import dataclass
-from typing import Callable, Any, AsyncIterator
+from typing import Callable, Any, AsyncIterator, TYPE_CHECKING
 import time
 import asyncio
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, TimeoutError
 
 from .core import ProcessingMode, ToolResult
 from .events import ToolOutputEvent
+
+if TYPE_CHECKING:
+    from .validation import ValidatorRegistry, ValidationError
 
 
 @dataclass
@@ -24,12 +27,19 @@ class ToolDefinition:
 
 class Tool:
     """
-    Executable tool with support for multiple processing modes.
+    Executable tool with support for multiple processing modes and native async callables.
     """
 
-    def __init__(self, definition: ToolDefinition, callable_func: Callable[[dict], dict | str | bytes]):
+    def __init__(
+        self,
+        definition: ToolDefinition,
+        callable_func: Callable[[dict], dict | str | bytes],
+        validator_registry: "ValidatorRegistry | None" = None
+    ):
         self._definition = definition
         self._callable = callable_func
+        self._validator_registry = validator_registry
+        self._is_async = asyncio.iscoroutinefunction(callable_func)
 
     @property
     def name(self) -> str:
@@ -38,6 +48,18 @@ class Tool:
     @property
     def definition(self) -> ToolDefinition:
         return self._definition
+
+    def validate_arguments(self, arguments: dict) -> tuple[bool, list["ValidationError"]]:
+        """
+        Validate tool arguments against input schema.
+
+        Returns:
+            (is_valid, errors) - is_valid is True if no errors
+        """
+        if not self._validator_registry or not self._definition.input_schema:
+            return True, []
+
+        return self._validator_registry.validate(arguments, self._definition.input_schema)
 
     def run(self, inputs: dict[str, Any], iteration: int, processing_mode: ProcessingMode | None = None) -> ToolResult:
         """Execute tool with inputs. Handles timeout and execution mode automatically."""
@@ -72,7 +94,7 @@ class Tool:
             execution_time = time.time() - start_time
             return ToolResult(
                 name=self._definition.name,
-                output={},
+                output=None,
                 success=False,
                 error_message=f"Tool execution timed out after {self._definition.timeout_seconds}s",
                 execution_time=execution_time,
@@ -83,7 +105,7 @@ class Tool:
             execution_time = time.time() - start_time
             return ToolResult(
                 name=self._definition.name,
-                output={},
+                output=None,
                 success=False,
                 error_message=f"Tool execution failed: {str(e)}",
                 execution_time=execution_time,
@@ -97,9 +119,10 @@ class Tool:
         processing_mode: ProcessingMode | None = None
     ) -> AsyncIterator[ToolOutputEvent]:
         """
-        Execute tool with streaming output.
+        Execute tool with streaming output. Supports native async callables.
 
         If the tool callable has a run_stream method, uses it for true streaming.
+        If the callable is async, calls it directly.
         Otherwise wraps run() and yields a single output event.
 
         Yields:
@@ -119,7 +142,22 @@ class Tool:
                     output={"error": str(e)},
                     is_partial=False
                 )
+        elif self._is_async:
+            try:
+                result = await self._callable(inputs)
+                yield ToolOutputEvent(
+                    tool_name=self._definition.name,
+                    output=result,
+                    is_partial=False
+                )
+            except Exception as e:
+                yield ToolOutputEvent(
+                    tool_name=self._definition.name,
+                    output={"error": str(e)},
+                    is_partial=False
+                )
         else:
+            # Sync callable - run in executor
             loop = asyncio.get_event_loop()
             result = await loop.run_in_executor(
                 None,
@@ -180,12 +218,16 @@ class Tool:
 
 
 class ToolRegistry:
-    """Registry for all available tools."""
+    """Registry for all available tools with optional validator injection."""
 
-    def __init__(self):
+    def __init__(self, validator_registry: "ValidatorRegistry | None" = None):
         self._tools: dict[str, Tool] = {}
+        self._validator_registry = validator_registry
 
     def register(self, tool: Tool) -> None:
+        """Register tool and inject validator if tool doesn't have one."""
+        if self._validator_registry and not tool._validator_registry:
+            tool._validator_registry = self._validator_registry
         self._tools[tool.name] = tool
 
     def get(self, name: str) -> Tool | None:

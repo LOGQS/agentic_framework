@@ -111,6 +111,26 @@ class ToolEndEvent(BaseEvent):
 
 
 @dataclass(init=False)
+class ToolValidationEvent(BaseEvent):
+    """Emitted when tool argument validation fails."""
+    tool_name: str
+    validation_errors: list[dict[str, Any]]
+
+    def __init__(
+        self,
+        tool_name: str,
+        validation_errors: list[dict],
+        timestamp: float = None,
+        step_id: str = ""
+    ):
+        self.tool_name = tool_name
+        self.validation_errors = validation_errors
+        self.type = "tool_validation"
+        self.timestamp = timestamp or now_timestamp()
+        self.step_id = step_id
+
+
+@dataclass(init=False)
 class ContextWriteEvent(BaseEvent):
     """Emitted when context is updated."""
     key: str
@@ -207,7 +227,7 @@ class StepCompleteEvent(BaseEvent):
 # Type alias for all possible events
 AgentEvent = (
     LLMTokenEvent | LLMCompleteEvent | StatusEvent |
-    ToolStartEvent | ToolOutputEvent | ToolEndEvent |
+    ToolStartEvent | ToolOutputEvent | ToolEndEvent | ToolValidationEvent |
     ContextWriteEvent | ErrorEvent |
     PatternStartEvent | PatternContentEvent | PatternEndEvent |
     StepCompleteEvent

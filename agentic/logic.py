@@ -9,7 +9,7 @@ import asyncio
 from .agent import AgentRunner
 from .context import ContextManager
 from .patterns import PatternRegistry
-from .core import AgentStepResult, AgentStatus, ProcessingMode
+from .core import AgentStepResult, AgentStatus, ProcessingMode, output_to_string
 from .events import (
     AgentEvent, StatusEvent, StepCompleteEvent,
     LLMCompleteEvent, LLMTokenEvent, PatternEndEvent, ToolEndEvent,
@@ -62,17 +62,28 @@ class LogicRunner:
 
         This aggregates all events from run_stream() and returns final results.
         """
-        results = []
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
         try:
-            async def collect():
-                async for event in self.run_stream(initial_input, processing_mode):
-                    if isinstance(event, StepCompleteEvent):
-                        results.append(event.result)
-            loop.run_until_complete(collect())
-        finally:
-            loop.close()
+            loop = asyncio.get_running_loop()
+            raise RuntimeError(
+                "LogicRunner.run() cannot be called from an async context. "
+                "Use 'await run_stream()' instead, or call from a synchronous context."
+            )
+        except RuntimeError as e:
+            if "no running event loop" not in str(e).lower():
+                raise
+
+        return asyncio.run(self._collect_run_events(initial_input, processing_mode))
+
+    async def _collect_run_events(
+        self,
+        initial_input: str | None,
+        processing_mode: ProcessingMode | None
+    ) -> list[AgentStepResult]:
+        """Helper to collect streaming results."""
+        results = []
+        async for event in self.run_stream(initial_input, processing_mode):
+            if isinstance(event, StepCompleteEvent):
+                results.append(event.result)
         return results
 
     async def run_stream(
@@ -100,11 +111,17 @@ class LogicRunner:
 
         yield StatusEvent(AgentStatus.OK, f"Starting logic loop: {self._config.logic_id}")
 
+        needs_llm_token_eval = self._has_conditions_for_event("llm_token")
+        needs_any_event_eval = self._has_conditions_for_event("any_event")
+        should_accumulate_partial = needs_llm_token_eval or needs_any_event_eval
+
+        max_buffer_size = self._agent_runner._agent.get_config().max_partial_buffer_size
+
         results: list[AgentStepResult] = []
         iteration_count = 0
         current_input = initial_input
         current_step_result = None
-        partial_raw_output = ""
+        partial_raw_output = "" if should_accumulate_partial else None
 
         while True:
             if self._config.max_iterations is not None:
@@ -112,13 +129,17 @@ class LogicRunner:
                     yield StatusEvent(AgentStatus.DONE, f"Max iterations reached: {self._config.max_iterations}")
                     break
 
-            partial_raw_output = ""
+            if should_accumulate_partial:
+                partial_raw_output = ""
 
             async for event in self._agent_runner.step_stream(current_input, processing_mode):
                 yield event
 
-                if isinstance(event, LLMTokenEvent):
+                if should_accumulate_partial and isinstance(event, LLMTokenEvent):
                     partial_raw_output += event.token
+
+                    if len(partial_raw_output) > max_buffer_size:
+                        partial_raw_output = partial_raw_output[-max_buffer_size:]
 
                 should_check = False
                 event_type = None
@@ -127,7 +148,7 @@ class LogicRunner:
                 if isinstance(event, LLMTokenEvent):
                     event_type = "llm_token"
                     should_check = self._has_conditions_for_event("llm_token")
-                    eval_context = {"raw_output": partial_raw_output}
+                    eval_context = {"raw_output": partial_raw_output or ""}
 
                 elif isinstance(event, LLMCompleteEvent):
                     event_type = "llm_complete"
@@ -159,7 +180,7 @@ class LogicRunner:
                     eval_context = {
                         "tool_name": event.tool_name,
                         "tool_result": event.result,
-                        "tool_output": str(event.result.output) if event.result.output else "",
+                        "tool_output": output_to_string(event.result.output),
                         "tool_success": event.result.success,
                         "raw_output": partial_raw_output
                     }
@@ -198,7 +219,7 @@ class LogicRunner:
                     should_check = self._has_conditions_for_event("tool_output")
                     eval_context = {
                         "tool_name": event.tool_name,
-                        "tool_output": str(event.output),
+                        "tool_output": output_to_string(event.output),
                         "is_partial": event.is_partial,
                         "raw_output": partial_raw_output
                     }
@@ -420,7 +441,7 @@ class LogicRunner:
 
         elif target == "tool_output":
             if result.tool_results:
-                outputs = [str(tr.output) for tr in result.tool_results]
+                outputs = [output_to_string(tr.output) for tr in result.tool_results]
                 return "\n".join(outputs)
             return None
 
@@ -452,15 +473,11 @@ class LogicRunner:
         elif eval_point == event_type:
             return True
         elif eval_point == "auto":
-            # Infer from target
             if condition.target.startswith("context:"):
-                # Context conditions evaluate at step_complete
                 return event_type == "step_complete"
             elif condition.match_type == "contains":
-                # Pattern matching evaluates at llm_complete
                 return event_type == "llm_complete"
             else:
-                # Default to step_complete
                 return event_type == "step_complete"
 
         return False
@@ -527,7 +544,6 @@ class LogicRunner:
     def _evaluate_condition_on_context(self, condition: LogicCondition, context: dict) -> bool:
         """Evaluate condition using partial context dict."""
         if condition.match_type == "regex":
-            # For regex, get target text from context
             target_text = None
 
             if condition.target == "response" or condition.target == "reasoning":
@@ -535,7 +551,6 @@ class LogicRunner:
             elif condition.target == "tool_output":
                 target_text = context.get("tool_output")
             elif condition.target.startswith("context:"):
-                # Read from DB context
                 context_key = condition.target[8:]
                 record = self._context.get(context_key)
                 if record:
@@ -554,8 +569,6 @@ class LogicRunner:
                 return False
 
         elif condition.match_type == "contains":
-            # For pattern contains, check if pattern exists in target text
-            # Get target text based on condition.target
             target_text = None
 
             if condition.target == "response" or condition.target == "reasoning":
@@ -578,7 +591,6 @@ class LogicRunner:
             if pattern_set is None:
                 return False
 
-            # Find the pattern object
             pattern_obj = None
             for p in pattern_set.patterns:
                 if p.name == condition.pattern_name:
@@ -588,7 +600,6 @@ class LogicRunner:
             if pattern_obj is None:
                 return False
 
-            # Check if pattern tags exist in target text
             start_escaped = re.escape(pattern_obj.start_tag)
             end_escaped = re.escape(pattern_obj.end_tag)
             quantifier = ".*" if pattern_obj.greedy else ".*?"
@@ -598,7 +609,6 @@ class LogicRunner:
             return matches is not None
 
         elif condition.match_type == "equals":
-            # For equals, compare directly
             target_text = None
 
             if condition.target == "response":

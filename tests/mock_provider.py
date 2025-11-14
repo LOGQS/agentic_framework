@@ -13,22 +13,10 @@ class MockLLMProvider:
         self._response = response
         self._simulate_streaming = simulate_streaming
 
-    def generate(
-        self,
-        prompt: str,
-        max_tokens: int,
-        temperature: float,
-        **kwargs
-    ) -> str:
+    def generate(self, prompt: str, **kwargs) -> str:
         return self._response
 
-    async def stream(
-        self,
-        prompt: str,
-        max_tokens: int,
-        temperature: float,
-        **kwargs
-    ) -> AsyncIterator[str]:
+    async def stream(self, prompt: str, **kwargs) -> AsyncIterator[str]:
         if self._simulate_streaming:
             words = self._response.split()
             for i, word in enumerate(words):

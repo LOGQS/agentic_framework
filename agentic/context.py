@@ -172,6 +172,18 @@ class ContextManager:
         self.set(key, TOMBSTONE)
 
     def list_keys(self, prefix: str | None = None) -> list[str]:
+        """
+        List all context keys. 
+
+        Format: "context:{key}:{version_or_latest}"
+        Key is everything between first ':' and last ':'
+
+        Args:
+            prefix: Optional prefix to filter keys
+
+        Returns:
+            Sorted list of context keys
+        """
         search_prefix = b"context:"
         keys_set = set()
 
@@ -180,14 +192,19 @@ class ContextManager:
             parts = key_str.split(':')
 
             if len(parts) >= 3:
-                context_key = parts[1]
+                context_key = ":".join(parts[1:-1])
                 if prefix is None or context_key.startswith(prefix):
                     keys_set.add(context_key)
 
         return sorted(list(keys_set))
 
     def clear(self) -> None:
-        """Clear all context entries (metadata and iteration preserved)."""
+        """
+        Clear all context entries.
+
+        Deletes all context keys, versions, and :latest pointers.
+        Iteration metadata and other non-context data is preserved.
+        """
         keys_to_delete = []
 
         for key, _ in self._storage.iterate(b"context:"):

@@ -6,6 +6,7 @@ from enum import Enum
 from typing import Any, Callable, TYPE_CHECKING
 import time
 import uuid
+import json
 
 if TYPE_CHECKING:
     from .context import ContextManager
@@ -33,6 +34,7 @@ class AgentStatus(Enum):
     OK = "ok"
     WAITING_FOR_TOOL = "waiting_for_tool"
     TOOL_EXECUTED = "tool_executed"
+    VALIDATION_ERROR = "validation_error"
     DONE = "done"
     ERROR = "error"
 
@@ -57,11 +59,45 @@ class ToolCall:
 class ToolResult:
     """Result of tool execution."""
     name: str
-    output: dict[str, Any] | str | bytes
+    output: dict[str, Any] | str | bytes | list[Any] | None
     success: bool
     error_message: str | None = None
     execution_time: float = 0.0
     iteration: int = 0
+
+
+def serialize_tool_output(output: Any) -> Any:
+    """
+    Serialize tool output for JSON storage, preserving native types.
+    """
+    if output is None:
+        return None
+    elif isinstance(output, (dict, list, str, int, float, bool)):
+        return output
+    elif isinstance(output, bytes):
+        return {"_type": "bytes", "_hex": output.hex()}
+    else:
+        return {"_type": "string", "_value": str(output)}
+
+
+def output_to_string(output: Any) -> str:
+    """
+    Convert tool output to string for pattern matching and display.
+    Used in logic conditions and anywhere we need text representation.
+    """
+    if output is None:
+        return ""
+    elif isinstance(output, str):
+        return output
+    elif isinstance(output, bytes):
+        try:
+            return output.decode('utf-8')
+        except (UnicodeDecodeError, AttributeError):
+            return output.hex()
+    elif isinstance(output, (dict, list)):
+        return json.dumps(output, indent=2)
+    else:
+        return str(output)
 
 
 @dataclass
@@ -87,22 +123,23 @@ class AgentStepResult:
 
 @dataclass
 class AgentConfig:
-    """Configuration for an agent."""
+    """
+    Configuration for an agent.
+    """
     agent_id: str
-    provider: str
-    model: str
-    max_tokens: int = 4096
-    temperature: float = 0.7
     tools_allowed: list[str] = field(default_factory=list)
+    tool_name_mapping: dict[str, str] = field(default_factory=dict)
+    validate_tool_arguments: bool = True
     input_mapping: list[dict[str, Any]] = field(default_factory=list)
     output_mapping: list[tuple[str, str]] = field(default_factory=list)
     pattern_set: str | None = None
     auto_increment_iteration: bool = True
-    processing_mode: ProcessingMode | None = None  # None means inherit from parent 
-    incremental_context_writes: bool = False  # Enable context updates during streaming
-    stream_pattern_content: bool = False  # Enable streaming pattern content before end tag (default: wait for complete patterns)
-    on_tool_detected: Any = None  # Callable[[ToolCall], bool] - callback to control tool execution (default: auto-execute)
-    concurrent_tool_execution: bool = False  # Execute tools concurrently during LLM streaming (default: execute after LLM completes)
+    processing_mode: ProcessingMode | None = None  # None means inherit from parent
+    incremental_context_writes: bool = False
+    stream_pattern_content: bool = False
+    on_tool_detected: Any = None  # Callable[[ToolCall], bool]
+    concurrent_tool_execution: bool = False
+    max_partial_buffer_size: int = 10_000_000
     prompt_builder: Callable[["ContextManager", "AgentConfig", str | None], PromptType] | None = None
 
 

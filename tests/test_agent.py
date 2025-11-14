@@ -45,9 +45,7 @@ class TestAgent:
     def test_agent_set_config(self, agent):
         """Test updating agent configuration."""
         new_config = AgentConfig(
-            agent_id="new_agent",
-            provider="test",
-            model="test-model"
+            agent_id="new_agent"
         )
         agent.set_config(new_config)
         assert agent.get_id() == "new_agent"
@@ -66,7 +64,7 @@ class TestMockLLMProvider:
     def test_mock_provider_generate(self):
         """Test MockLLMProvider generate method."""
         provider = MockLLMProvider(response="Test response")
-        output = provider.generate("prompt", 100, 0.7)
+        output = provider.generate("prompt")
         assert output == "Test response"
 
     @pytest.mark.asyncio
@@ -75,7 +73,7 @@ class TestMockLLMProvider:
         provider = MockLLMProvider(response="Test response", simulate_streaming=False)
 
         tokens = []
-        async for token in provider.stream("prompt", 100, 0.7):
+        async for token in provider.stream("prompt"):
             tokens.append(token)
 
         assert len(tokens) == 1
@@ -87,7 +85,7 @@ class TestMockLLMProvider:
         provider = MockLLMProvider(response="Hello world test", simulate_streaming=True)
 
         tokens = []
-        async for token in provider.stream("prompt", 100, 0.7):
+        async for token in provider.stream("prompt"):
             tokens.append(token)
 
         assert len(tokens) == 3
@@ -96,10 +94,10 @@ class TestMockLLMProvider:
     def test_mock_provider_set_response(self):
         """Test changing MockLLMProvider response."""
         provider = MockLLMProvider(response="First")
-        assert provider.generate("", 0, 0) == "First"
+        assert provider.generate("") == "First"
 
         provider.set_response("Second")
-        assert provider.generate("", 0, 0) == "Second"
+        assert provider.generate("") == "Second"
 
 
 class TestAgentRunnerBatch:
@@ -264,12 +262,12 @@ class TestAgentErrorHandling:
     def test_agent_llm_error(self, agent, context_manager, pattern_registry, tool_registry):
         """Test agent handling LLM generation error."""
         class ErrorProvider:
-            def generate(self, prompt, max_tokens, temperature, **kwargs):
+            def generate(self, prompt, **kwargs):
                 raise RuntimeError("LLM failed")
 
-            async def stream(self, prompt, max_tokens, temperature, **kwargs):
+            async def stream(self, prompt, **kwargs):
                 if False:
-                    yield  
+                    yield
                 raise RuntimeError("LLM failed")
 
         error_provider = ErrorProvider()
@@ -1102,3 +1100,153 @@ class TestAgentToolStateTracking:
             assert record is not None
             # Both should be finished
             assert record.value == b"finished"
+
+
+@pytest.mark.asyncio
+class TestToolOutputAggregation:
+    """Tests for tool output aggregation logic (0/1/many chunks)."""
+
+    async def test_zero_chunks_returns_none(self, agent_runner, mock_llm_provider, tool_registry):
+        """Test that tool with zero output chunks returns output=None."""
+        class NoOutputTool:
+            def __call__(self, inputs):
+                return {"should_not_use": "this"}
+
+            async def run_stream(self, inputs):
+                if False:
+                    yield
+
+        from agentic.tools import Tool, ToolDefinition
+        tool_func = NoOutputTool()
+        tool = Tool(ToolDefinition("no_output_tool", {}, {}), tool_func)
+        tool_registry.register(tool)
+
+        config = agent_runner._agent.get_config()
+        config.tools_allowed = ["no_output_tool"]
+        agent_runner._agent.set_config(config)
+
+        mock_llm_provider.set_response('<tool>{"name": "no_output_tool", "arguments": {}}</tool>')
+
+        final_result = None
+        async for event in agent_runner.step_stream():
+            if isinstance(event, StepCompleteEvent):
+                final_result = event.result
+
+        assert final_result.tool_results[0].output is None
+
+    async def test_one_chunk_returns_unwrapped(self, agent_runner, mock_llm_provider, tool_registry):
+        """Test that tool with single output chunk returns it unwrapped (not in list)."""
+        class SingleChunkTool:
+            def __call__(self, inputs):
+                return {"final": "result"}
+
+            async def run_stream(self, inputs):
+                yield {"single": "chunk"}
+
+        from agentic.tools import Tool, ToolDefinition
+        tool_func = SingleChunkTool()
+        tool = Tool(ToolDefinition("single_chunk_tool", {}, {}), tool_func)
+        tool_registry.register(tool)
+
+        config = agent_runner._agent.get_config()
+        config.tools_allowed = ["single_chunk_tool"]
+        agent_runner._agent.set_config(config)
+
+        mock_llm_provider.set_response('<tool>{"name": "single_chunk_tool", "arguments": {}}</tool>')
+
+        final_result = None
+        async for event in agent_runner.step_stream():
+            if isinstance(event, StepCompleteEvent):
+                final_result = event.result
+
+        assert final_result.tool_results[0].output == {"single": "chunk"}
+        assert not isinstance(final_result.tool_results[0].output, list)
+
+    async def test_multiple_chunks_returns_list(self, agent_runner, mock_llm_provider, tool_registry):
+        """Test that tool with multiple chunks returns them in a list."""
+        class MultiChunkTool:
+            def __call__(self, inputs):
+                return {"final": "result"}
+
+            async def run_stream(self, inputs):
+                yield {"chunk": 1}
+                yield {"chunk": 2}
+                yield {"chunk": 3}
+
+        from agentic.tools import Tool, ToolDefinition
+        tool_func = MultiChunkTool()
+        tool = Tool(ToolDefinition("multi_chunk_tool", {}, {}), tool_func)
+        tool_registry.register(tool)
+
+        config = agent_runner._agent.get_config()
+        config.tools_allowed = ["multi_chunk_tool"]
+        config.concurrent_tool_execution = False
+        agent_runner._agent.set_config(config)
+
+        mock_llm_provider.set_response('<tool>{"name": "multi_chunk_tool", "arguments": {}}</tool>')
+
+        final_result = None
+        async for event in agent_runner.step_stream():
+            if isinstance(event, StepCompleteEvent):
+                final_result = event.result
+
+        assert isinstance(final_result.tool_results[0].output, list)
+        assert len(final_result.tool_results[0].output) == 3
+        assert final_result.tool_results[0].output[0] == {"chunk": 1}
+        assert final_result.tool_results[0].output[1] == {"chunk": 2}
+        assert final_result.tool_results[0].output[2] == {"chunk": 3}
+
+    async def test_error_tool_has_none_output(self, agent_runner, mock_llm_provider, tool_registry, agent):
+        """Test that tools returning errors have output=None."""
+        def error_func(inputs):
+            raise ValueError("Simulated error")
+
+        from agentic.tools import create_tool
+        error_tool = create_tool("error_tool", error_func)
+        tool_registry.register(error_tool)
+
+        config = agent.get_config()
+        config.tools_allowed.append("error_tool")
+        agent.set_config(config)
+
+        mock_llm_provider.set_response('<tool>{"name": "error_tool", "arguments": {}}</tool>')
+
+        final_result = None
+        async for event in agent_runner.step_stream():
+            if isinstance(event, StepCompleteEvent):
+                final_result = event.result
+
+        assert final_result.tool_results[0].success is False
+        assert final_result.tool_results[0].output is None
+
+    async def test_tool_not_allowed_has_none_output(self, agent_runner, mock_llm_provider, agent):
+        """Test that tool_not_allowed error has output=None."""
+        config = agent.get_config()
+        config.tools_allowed = []
+        agent.set_config(config)
+
+        mock_llm_provider.set_response('<tool>{"name": "echo", "arguments": {"message": "test"}}</tool>')
+
+        final_result = None
+        async for event in agent_runner.step_stream():
+            if isinstance(event, StepCompleteEvent):
+                final_result = event.result
+
+        assert final_result.status == AgentStatus.ERROR
+        assert "not in allowed list" in final_result.error_message
+
+    async def test_tool_not_found_has_none_output(self, agent_runner, mock_llm_provider, agent):
+        """Test that tool_not_found error has output=None."""
+        config = agent.get_config()
+        config.tools_allowed = ["nonexistent_tool"]
+        agent.set_config(config)
+
+        mock_llm_provider.set_response('<tool>{"name": "nonexistent_tool", "arguments": {}}</tool>')
+
+        final_result = None
+        async for event in agent_runner.step_stream():
+            if isinstance(event, StepCompleteEvent):
+                final_result = event.result
+
+        assert final_result.status == AgentStatus.ERROR
+        assert "not found in registry" in final_result.error_message

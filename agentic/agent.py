@@ -1,22 +1,25 @@
 """
 Agent abstraction and execution runner.
 """
-from typing import Protocol, AsyncIterator
+from typing import Protocol, AsyncIterator, TYPE_CHECKING
 import json
 import time
 import asyncio
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 
-from .core import AgentConfig, AgentStatus, AgentStepResult, ExtractedSegments, ToolResult, ToolCall, ProcessingMode, new_uuid, PromptType
+from .core import AgentConfig, AgentStatus, AgentStepResult, ExtractedSegments, ToolResult, ToolCall, ProcessingMode, new_uuid, PromptType, serialize_tool_output
 from .context import ContextManager
 from .patterns import PatternRegistry, PatternExtractor, StreamingPatternExtractor
 from .tools import ToolRegistry
 from .events import (
     AgentEvent, LLMTokenEvent, LLMCompleteEvent, StatusEvent,
-    ToolStartEvent, ToolEndEvent,
+    ToolStartEvent, ToolEndEvent, ToolValidationEvent,
     ContextWriteEvent, ErrorEvent, StepCompleteEvent,
     PatternStartEvent, PatternContentEvent, PatternEndEvent
 )
+
+if TYPE_CHECKING:
+    from .validation import ValidationError
 
 
 class LLMProvider(Protocol):
@@ -30,31 +33,34 @@ class LLMProvider(Protocol):
     The prompt parameter accepts PromptType (Any). Providers interpret structure.
     """
 
-    def generate(
-        self,
-        prompt: PromptType,
-        max_tokens: int,
-        temperature: float,
-        **kwargs
-    ) -> str:
-        """Generate complete text from prompt (blocking)."""
+    def generate(self, prompt: PromptType, **kwargs) -> str:
+        """
+        Generate complete text from prompt (blocking).
+
+        Args:
+            prompt: Prompt in any format the provider supports
+            **kwargs: Provider-specific options (model, temperature, max_tokens, etc.)
+
+        Returns:
+            Generated text
+        """
         ...
 
-    async def stream(
-        self,
-        prompt: PromptType,
-        max_tokens: int,
-        temperature: float,
-        **kwargs
-    ) -> AsyncIterator[str]:
+    async def stream(self, prompt: PromptType, **kwargs) -> AsyncIterator[str]:
         """
         Stream tokens from prompt (optional).
 
         If not implemented, framework falls back to generate()
         and simulates streaming.
+
+        Args:
+            prompt: Prompt in any format the provider supports
+            **kwargs: Provider-specific options (model, temperature, max_tokens, etc.)
+
+        Yields:
+            Token strings
         """
-        # Default implementation: simulate streaming with generate()
-        text = self.generate(prompt, max_tokens, temperature, **kwargs)
+        text = self.generate(prompt, **kwargs)
         yield text
 
 
@@ -113,7 +119,7 @@ class AgentRunner:
         """Create error result for tool not in allowed list."""
         return ToolResult(
             name=tool_name,
-            output={},
+            output=None,
             success=False,
             error_message=f"Tool '{tool_name}' not in allowed list",
             execution_time=0.0,
@@ -124,12 +130,45 @@ class AgentRunner:
         """Create error result for tool not found in registry."""
         return ToolResult(
             name=tool_name,
-            output={},
+            output=None,
             success=False,
             error_message=f"Tool '{tool_name}' not found in registry",
             execution_time=0.0,
             iteration=iteration
         )
+
+    def _create_tool_validation_error(
+        self,
+        tool_name: str,
+        errors: list["ValidationError"],
+        iteration: int
+    ) -> ToolResult:
+        """Create error result for failed validation."""
+        error_msg = "; ".join([f"{e.field}: {e.message}" for e in errors])
+        return ToolResult(
+            name=tool_name,
+            output={"validation_errors": [{"field": e.field, "message": e.message, "value": e.value} for e in errors]},
+            success=False,
+            error_message=f"Argument validation failed: {error_msg}",
+            execution_time=0.0,
+            iteration=iteration
+        )
+
+    def _resolve_tool_name(self, public_name: str) -> str:
+        """
+        Resolve public tool name to internal registry name.
+
+        Uses tool_name_mapping from config to map public names (that LLMs see)
+        to internal registry names.
+
+        Args:
+            public_name: Tool name from LLM output
+
+        Returns:
+            Internal tool name for registry lookup
+        """
+        config = self._agent.get_config()
+        return config.tool_name_mapping.get(public_name, public_name)
 
     def step(self, user_input: str | None = None, processing_mode: ProcessingMode | None = None) -> AgentStepResult:
         """
@@ -138,23 +177,28 @@ class AgentRunner:
         This is a convenience wrapper around step_stream() that aggregates
         all events and returns the final result.
         """
-        events = []
-        final_result = None
-
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
         try:
-            async def collect():
-                nonlocal final_result
-                async for event in self.step_stream(user_input, processing_mode):
-                    events.append(event)
-                    if isinstance(event, StepCompleteEvent):
-                        final_result = event.result
+            loop = asyncio.get_running_loop()
+            raise RuntimeError(
+                "AgentRunner.step() cannot be called from an async context. "
+                "Use 'await step_stream()' instead, or call from a synchronous context."
+            )
+        except RuntimeError as e:
+            if "no running event loop" not in str(e).lower():
+                raise
 
-            loop.run_until_complete(collect())
-        finally:
-            loop.close()
+        return asyncio.run(self._collect_step_events(user_input, processing_mode))
 
+    async def _collect_step_events(
+        self,
+        user_input: str | None,
+        processing_mode: ProcessingMode | None
+    ) -> AgentStepResult:
+        """Helper to collect all events into final result."""
+        final_result = None
+        async for event in self.step_stream(user_input, processing_mode):
+            if isinstance(event, StepCompleteEvent):
+                final_result = event.result
         return final_result
 
     async def step_stream(
@@ -207,11 +251,7 @@ class AgentRunner:
         tool_event_queue: asyncio.Queue = asyncio.Queue()
 
         try:
-            async for token in self._agent.provider.stream(
-                prompt=prompt,
-                max_tokens=config.max_tokens,
-                temperature=config.temperature
-            ):
+            async for token in self._agent.provider.stream(prompt=prompt):
                 raw_output_buffer.append(token)
                 yield LLMTokenEvent(token, step_id=step_id)
 
@@ -457,11 +497,7 @@ class AgentRunner:
         prompt = self._build_prompt(user_input)
 
         try:
-            raw_output = self._agent.provider.generate(
-                prompt=prompt,
-                max_tokens=self._agent.get_config().max_tokens,
-                temperature=self._agent.get_config().temperature
-            )
+            raw_output = self._agent.provider.generate(prompt=prompt)
         except Exception as e:
             return AgentStepResult(
                 status=AgentStatus.ERROR,
@@ -583,22 +619,37 @@ class AgentRunner:
 
             yield ToolStartEvent(tool_call.name, tool_call.arguments, iteration, tool_call.call_id, step_id=step_id)
 
-            if tool_call.name not in config.tools_allowed:
-                result = self._create_tool_not_allowed_error(tool_call.name, iteration)
+            internal_name = self._resolve_tool_name(tool_call.name)
+
+            if internal_name not in config.tools_allowed:
+                result = self._create_tool_not_allowed_error(internal_name, iteration)
                 yield ErrorEvent("tool_not_allowed", result.error_message, recoverable=True, step_id=step_id)
-                yield ToolEndEvent(tool_call.name, result, tool_call.call_id, step_id=step_id)
+                yield ToolEndEvent(internal_name, result, tool_call.call_id, step_id=step_id)
                 self._agent.context.set(tool_state_key, b"failed", iteration=iteration)
                 self._store_tool_result(tool_call.call_id, result, iteration)
                 continue
 
-            tool = self._agent.tools.get(tool_call.name)
+            tool = self._agent.tools.get(internal_name)
             if tool is None:
-                result = self._create_tool_not_found_error(tool_call.name, iteration)
+                result = self._create_tool_not_found_error(internal_name, iteration)
                 yield ErrorEvent("tool_not_found", result.error_message, recoverable=True, step_id=step_id)
-                yield ToolEndEvent(tool_call.name, result, tool_call.call_id, step_id=step_id)
+                yield ToolEndEvent(internal_name, result, tool_call.call_id, step_id=step_id)
                 self._agent.context.set(tool_state_key, b"failed", iteration=iteration)
                 self._store_tool_result(tool_call.call_id, result, iteration)
                 continue
+
+            if config.validate_tool_arguments:
+                is_valid, validation_errors = tool.validate_arguments(tool_call.arguments)
+                if not is_valid:
+                    result = self._create_tool_validation_error(internal_name, validation_errors, iteration)
+                    yield ErrorEvent("tool_validation_error", result.error_message, recoverable=True, step_id=step_id)
+                    yield ToolValidationEvent(internal_name,
+                        [{"field": e.field, "message": e.message, "value": e.value} for e in validation_errors],
+                        step_id=step_id)
+                    yield ToolEndEvent(internal_name, result, tool_call.call_id, step_id=step_id)
+                    self._agent.context.set(tool_state_key, b"failed", iteration=iteration)
+                    self._store_tool_result(tool_call.call_id, result, iteration)
+                    continue
 
             start_time = time.time()
             output_chunks = []
@@ -614,18 +665,15 @@ class AgentRunner:
 
                 execution_time = time.time() - start_time
 
-                if len(output_chunks) == 1:
+                if len(output_chunks) == 0:
+                    final_output = None
+                elif len(output_chunks) == 1:
                     final_output = output_chunks[0]
                 else:
-                    if all(isinstance(chunk, str) for chunk in output_chunks):
-                        final_output = "".join(output_chunks)
-                    elif all(isinstance(chunk, dict) for chunk in output_chunks):
-                        final_output = {f"chunk_{i}": chunk for i, chunk in enumerate(output_chunks)}
-                    else:
-                        final_output = output_chunks
+                    final_output = output_chunks
 
                 result = ToolResult(
-                    name=tool_call.name,
+                    name=internal_name,
                     output=final_output,
                     success=True,
                     error_message=None,
@@ -640,7 +688,7 @@ class AgentRunner:
                 execution_time = time.time() - start_time
                 result = ToolResult(
                     name=tool_call.name,
-                    output={},
+                    output=None,
                     success=False,
                     error_message=f"Tool execution failed: {str(e)}",
                     execution_time=execution_time,
@@ -674,26 +722,43 @@ class AgentRunner:
 
         await event_queue.put(ToolStartEvent(tool_call.name, tool_call.arguments, iteration, tool_call.call_id, step_id=step_id))
 
-        if tool_call.name not in config.tools_allowed:
-            result = self._create_tool_not_allowed_error(tool_call.name, iteration)
+        internal_name = self._resolve_tool_name(tool_call.name)
+
+        if internal_name not in config.tools_allowed:
+            result = self._create_tool_not_allowed_error(internal_name, iteration)
             await event_queue.put(ErrorEvent("tool_not_allowed", result.error_message, recoverable=True, step_id=step_id))
-            await event_queue.put(ToolEndEvent(tool_call.name, result, tool_call.call_id, step_id=step_id))
+            await event_queue.put(ToolEndEvent(internal_name, result, tool_call.call_id, step_id=step_id))
             results_list.append(result)
 
             self._agent.context.set(tool_state_key, b"failed", iteration=iteration)
             self._store_tool_result(tool_call.call_id, result, iteration)
             return
 
-        tool = self._agent.tools.get(tool_call.name)
+        tool = self._agent.tools.get(internal_name)
         if tool is None:
-            result = self._create_tool_not_found_error(tool_call.name, iteration)
+            result = self._create_tool_not_found_error(internal_name, iteration)
             await event_queue.put(ErrorEvent("tool_not_found", result.error_message, recoverable=True, step_id=step_id))
-            await event_queue.put(ToolEndEvent(tool_call.name, result, tool_call.call_id, step_id=step_id))
+            await event_queue.put(ToolEndEvent(internal_name, result, tool_call.call_id, step_id=step_id))
             results_list.append(result)
 
             self._agent.context.set(tool_state_key, b"failed", iteration=iteration)
             self._store_tool_result(tool_call.call_id, result, iteration)
             return
+
+        if config.validate_tool_arguments:
+            is_valid, validation_errors = tool.validate_arguments(tool_call.arguments)
+            if not is_valid:
+                result = self._create_tool_validation_error(internal_name, validation_errors, iteration)
+                await event_queue.put(ErrorEvent("tool_validation_error", result.error_message, recoverable=True, step_id=step_id))
+                await event_queue.put(ToolValidationEvent(internal_name,
+                    [{"field": e.field, "message": e.message, "value": e.value} for e in validation_errors],
+                    step_id=step_id))
+                await event_queue.put(ToolEndEvent(internal_name, result, tool_call.call_id, step_id=step_id))
+                results_list.append(result)
+
+                self._agent.context.set(tool_state_key, b"failed", iteration=iteration)
+                self._store_tool_result(tool_call.call_id, result, iteration)
+                return
 
         start_time = time.time()
         output_chunks = []
@@ -707,18 +772,15 @@ class AgentRunner:
 
             execution_time = time.time() - start_time
 
-            if len(output_chunks) == 1:
+            if len(output_chunks) == 0:
+                final_output = None
+            elif len(output_chunks) == 1:
                 final_output = output_chunks[0]
             else:
-                if all(isinstance(c, str) for c in output_chunks):
-                    final_output = "".join(output_chunks)
-                elif all(isinstance(c, dict) for c in output_chunks):
-                    final_output = {f"chunk_{i}": c for i, c in enumerate(output_chunks)}
-                else:
-                    final_output = output_chunks
+                final_output = output_chunks
 
             result = ToolResult(
-                name=tool_call.name,
+                name=internal_name,
                 output=final_output,
                 success=True,
                 error_message=None,
@@ -735,7 +797,7 @@ class AgentRunner:
             execution_time = time.time() - start_time
             result = ToolResult(
                 name=tool_call.name,
-                output={},
+                output=None,
                 success=False,
                 error_message=f"Tool execution failed: {str(e)}",
                 execution_time=execution_time,
@@ -758,20 +820,31 @@ class AgentRunner:
             tool_state_key = f"tool_state:{tool_call.call_id}"
             self._agent.context.set(tool_state_key, b"started", iteration=iteration)
 
-            if tool_call.name not in config.tools_allowed:
-                result = self._create_tool_not_allowed_error(tool_call.name, iteration)
+            internal_name = self._resolve_tool_name(tool_call.name)
+
+            if internal_name not in config.tools_allowed:
+                result = self._create_tool_not_allowed_error(internal_name, iteration)
                 results.append(result)
                 self._agent.context.set(tool_state_key, b"failed", iteration=iteration)
                 self._store_tool_result(tool_call.call_id, result, iteration)
                 continue
 
-            tool = self._agent.tools.get(tool_call.name)
+            tool = self._agent.tools.get(internal_name)
             if tool is None:
-                result = self._create_tool_not_found_error(tool_call.name, iteration)
+                result = self._create_tool_not_found_error(internal_name, iteration)
                 results.append(result)
                 self._agent.context.set(tool_state_key, b"failed", iteration=iteration)
                 self._store_tool_result(tool_call.call_id, result, iteration)
                 continue
+
+            if config.validate_tool_arguments:
+                is_valid, validation_errors = tool.validate_arguments(tool_call.arguments)
+                if not is_valid:
+                    result = self._create_tool_validation_error(internal_name, validation_errors, iteration)
+                    results.append(result)
+                    self._agent.context.set(tool_state_key, b"failed", iteration=iteration)
+                    self._store_tool_result(tool_call.call_id, result, iteration)
+                    continue
 
             result = tool.run(tool_call.arguments, iteration, processing_mode=effective_mode)
             results.append(result)
@@ -789,7 +862,7 @@ class AgentRunner:
         result_data = json.dumps({
             "tool_name": result.name,
             "success": result.success,
-            "output": str(result.output),
+            "output": serialize_tool_output(result.output),
             "error_message": result.error_message,
             "execution_time": result.execution_time,
             "iteration": iteration,
@@ -834,7 +907,7 @@ class AgentRunner:
                         {
                             "name": tr.name,
                             "success": tr.success,
-                            "output": str(tr.output)
+                            "output": serialize_tool_output(tr.output)
                         }
                         for tr in tool_results
                     ])

@@ -285,6 +285,112 @@ def create_default_pattern_set() -> PatternSet:
     )
 
 
+def create_json_tools_pattern_set() -> PatternSet:
+    """
+    Pattern set using JSON code blocks for tools.
+
+    Useful when LLMs are more reliable with markdown code blocks.
+    Tools use ```json...``` format, reasoning and response use XML tags.
+    """
+    return PatternSet(
+        name="json_tools",
+        patterns=[
+            Pattern(
+                name="tool",
+                start_tag="```json",
+                end_tag="```",
+                segment_type=SegmentType.TOOL,
+                greedy=False
+            ),
+            Pattern(
+                name="reasoning",
+                start_tag="<reasoning>",
+                end_tag="</reasoning>",
+                segment_type=SegmentType.REASONING,
+                greedy=False
+            ),
+            Pattern(
+                name="response",
+                start_tag="<response>",
+                end_tag="</response>",
+                segment_type=SegmentType.RESPONSE,
+                greedy=False
+            )
+        ],
+        default_response_behavior="all_remaining"
+    )
+
+
+def create_xml_tools_pattern_set() -> PatternSet:
+    """
+    Pattern set using XML-style tags throughout.
+
+    Uses <tool_call>, <thinking>, and <answer> tags for more natural prompting.
+    """
+    return PatternSet(
+        name="xml_tools",
+        patterns=[
+            Pattern(
+                name="tool",
+                start_tag="<tool_call>",
+                end_tag="</tool_call>",
+                segment_type=SegmentType.TOOL,
+                greedy=False
+            ),
+            Pattern(
+                name="reasoning",
+                start_tag="<thinking>",
+                end_tag="</thinking>",
+                segment_type=SegmentType.REASONING,
+                greedy=False
+            ),
+            Pattern(
+                name="response",
+                start_tag="<answer>",
+                end_tag="</answer>",
+                segment_type=SegmentType.RESPONSE,
+                greedy=False
+            )
+        ],
+        default_response_behavior="all_remaining"
+    )
+
+
+def create_backtick_tools_pattern_set() -> PatternSet:
+    """
+    Pattern set using triple backticks for tools.
+
+    Uses ```tool...``` format (no language spec) for tools.
+    """
+    return PatternSet(
+        name="backtick_tools",
+        patterns=[
+            Pattern(
+                name="tool",
+                start_tag="```tool",
+                end_tag="```",
+                segment_type=SegmentType.TOOL,
+                greedy=False
+            ),
+            Pattern(
+                name="reasoning",
+                start_tag="<reasoning>",
+                end_tag="</reasoning>",
+                segment_type=SegmentType.REASONING,
+                greedy=False
+            ),
+            Pattern(
+                name="response",
+                start_tag="<response>",
+                end_tag="</response>",
+                segment_type=SegmentType.RESPONSE,
+                greedy=False
+            )
+        ],
+        default_response_behavior="all_remaining"
+    )
+
+
 @dataclass
 class _ActivePattern:
     """Tracks an active pattern being streamed."""
