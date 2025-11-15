@@ -12,7 +12,7 @@ import pytest
 
 from agentic.core import AgentStatus
 from agentic.events import (
-    LLMTokenEvent,
+    LLMChunkEvent,
     LLMCompleteEvent,
     ToolStartEvent,
     ToolEndEvent,
@@ -53,7 +53,7 @@ class TestFullAgentStreaming:
 
         # Verify we got various event types
         event_types = {type(e).__name__ for e in events}
-        assert "LLMTokenEvent" in event_types
+        assert "LLMChunkEvent" in event_types
         assert "LLMCompleteEvent" in event_types
         assert "StatusEvent" in event_types
         assert "PatternStartEvent" in event_types
@@ -71,7 +71,7 @@ class TestFullAgentStreaming:
 
         Verify the logical sequence:
         1. Status events at start
-        2. LLM token events
+        2. LLM chunk events
         3. Pattern events (start, content, end) as patterns detected
         4. LLM complete event
         5. Final status and step complete events
@@ -386,7 +386,7 @@ class TestStreamingComplexScenarios:
 
         # Verify we got all expected event types
         event_types = {type(e).__name__ for e in events}
-        assert "LLMTokenEvent" in event_types
+        assert "LLMChunkEvent" in event_types
         assert "PatternStartEvent" in event_types
         assert "PatternEndEvent" in event_types
         assert "ToolStartEvent" in event_types
@@ -422,17 +422,17 @@ class TestStreamingComplexScenarios:
         mock_llm_provider.simulate_streaming = True
         mock_llm_provider.set_response(long_response)
 
-        token_count = 0
+        chunk_count = 0
         final_result = None
 
         async for event in agent_runner.step_stream():
-            if isinstance(event, LLMTokenEvent):
-                token_count += 1
+            if isinstance(event, LLMChunkEvent):
+                chunk_count += 1
             if isinstance(event, StepCompleteEvent):
                 final_result = event.result
 
-        # Should have received many tokens
-        assert token_count > 0
+        # Should have received many chunks
+        assert chunk_count > 0
 
         # Final result should have complete output
         assert len(final_result.raw_output) == 50000

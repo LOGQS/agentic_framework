@@ -20,12 +20,11 @@ from agentic.events import (
     ToolStartEvent,
     ToolEndEvent,
     StepCompleteEvent,
-    ErrorEvent,
     PatternStartEvent,
     PatternContentEvent,
     PatternEndEvent,
     ContextWriteEvent,
-    LLMTokenEvent,
+    LLMChunkEvent,
     StatusEvent
 )
 
@@ -74,24 +73,24 @@ class TestMockLLMProvider:
         """Test MockLLMProvider stream without simulation."""
         provider = MockLLMProvider(response="Test response", simulate_streaming=False)
 
-        tokens = []
-        async for token in provider.stream("prompt"):
-            tokens.append(token)
+        chunks = []
+        async for chunk in provider.stream("prompt"):
+            chunks.append(chunk)
 
-        assert len(tokens) == 1
-        assert tokens[0] == "Test response"
+        assert len(chunks) == 1
+        assert chunks[0] == "Test response"
 
     @pytest.mark.asyncio
     async def test_mock_provider_stream_with_simulation(self):
         """Test MockLLMProvider stream with word-by-word simulation."""
         provider = MockLLMProvider(response="Hello world test", simulate_streaming=True)
 
-        tokens = []
-        async for token in provider.stream("prompt"):
-            tokens.append(token)
+        chunks = []
+        async for chunk in provider.stream("prompt"):
+            chunks.append(chunk)
 
-        assert len(tokens) == 3
-        assert "".join(tokens) == "Hello world test"
+        assert len(chunks) == 3
+        assert "".join(chunks) == "Hello world test"
 
     def test_mock_provider_set_response(self):
         """Test changing MockLLMProvider response."""
@@ -242,8 +241,8 @@ class TestAgentContextUpdates:
         agent_runner.step()
 
         # Check that output was stored (based on output_mapping in fixture)
-        record = context_manager.get("last_output")
-        assert record is not None
+        value = context_manager.get("last_output")
+        assert value is not None
 
     def test_context_versioning_across_steps(self, agent_runner, mock_llm_provider, context_manager):
         """Test that context versions across multiple steps."""
@@ -699,15 +698,14 @@ class TestAgentOutputMapping:
         mock_llm_provider.set_response("First message")
         agent_runner.step()
 
-        record = context_manager.get("conversation")
-        assert b"First message" in record.value
+        value = context_manager.get("conversation")
+        assert "First message" in value
 
         # Second step - should append
         mock_llm_provider.set_response("Second message")
         agent_runner.step()
 
-        record = context_manager.get("conversation")
-        content = record.value.decode('utf-8')
+        content = context_manager.get("conversation")
         assert "First message" in content
         assert "Second message" in content
         assert "\n\n" in content  # Should have separator
@@ -725,9 +723,9 @@ class TestAgentOutputMapping:
         mock_llm_provider.set_response("<response>The answer is 42</response>")
         agent_runner.step()
 
-        record = context_manager.get("final_answer")
-        assert record is not None
-        assert record.value == b"The answer is 42"
+        value = context_manager.get("final_answer")
+        assert value is not None
+        assert value == "The answer is 42"
 
     def test_output_mapping_set_reasoning(self, agent, agent_runner, mock_llm_provider, context_manager):
         """Test set_reasoning output mapping operation.
@@ -746,9 +744,8 @@ class TestAgentOutputMapping:
         )
         agent_runner.step()
 
-        record = context_manager.get("thought_process")
-        assert record is not None
-        content = record.value.decode('utf-8')
+        content = context_manager.get("thought_process")
+        assert content is not None
         assert "First thought" in content
         assert "Second thought" in content
 
@@ -766,11 +763,11 @@ class TestAgentOutputMapping:
         mock_llm_provider.set_response('<tool>{"name": "echo", "arguments": {"message": "test"}}</tool>')
         agent_runner.step()
 
-        record = context_manager.get("tool_results")
-        assert record is not None
+        value = context_manager.get("tool_results")
+        assert value is not None
 
         # Parse JSON
-        tools_data = json.loads(record.value.decode('utf-8'))
+        tools_data = json.loads(value)
         assert len(tools_data) == 1
         assert tools_data[0]["name"] == "echo"
         assert tools_data[0]["success"] is True
@@ -791,12 +788,12 @@ class TestAgentOutputMapping:
         agent_runner.step()
 
         # Both mappings should be applied
-        raw_record = context_manager.get("raw")
-        assert b"Thinking..." in raw_record.value
-        assert b"<response>" in raw_record.value
+        raw_value = context_manager.get("raw")
+        assert "Thinking..." in raw_value
+        assert "<response>" in raw_value
 
-        answer_record = context_manager.get("answer")
-        assert answer_record.value == b"Final answer"
+        answer_value = context_manager.get("answer")
+        assert answer_value == "Final answer"
 
 
 class TestAgentEdgeCases:
@@ -870,13 +867,13 @@ class TestAgentStreamPatternContent:
         """Test incremental pattern content updates during streaming.
 
         PatternContentEvent should be emitted incrementally as the pattern
-        content is streamed token-by-token.
+        content is streamed chunk-by-chunk.
         """
         config = agent.get_config()
         config.stream_pattern_content = True
         agent.set_config(config)
 
-        # Use simulate_streaming to get token-by-token behavior
+        # Use simulate_streaming to get chunk-by-chunk behavior
         mock_llm_provider.simulate_streaming = True
         mock_llm_provider.set_response("<response>Word by word response</response>")
 
@@ -938,10 +935,10 @@ class TestAgentIncrementalContextWrites:
         # Consume streaming events
         async for event in agent_runner.step_stream():
             # During streaming, check if streaming key exists
-            if isinstance(event, LLMTokenEvent):
+            if isinstance(event, LLMChunkEvent):
                 iteration_current = context_manager.get_iteration()
                 streaming_key = f"llm_streaming:{iteration_current}"
-                record = context_manager.get(streaming_key)
+                value = context_manager.get(streaming_key)
                 # Key may or may not exist depending on timing
                 # But by end of stream it should have been created
 
@@ -971,8 +968,8 @@ class TestAgentIncrementalContextWrites:
                 # Check if partial key exists
                 iteration_current = context_manager.get_iteration()
                 partial_key = f"pattern_partial:{event.pattern_name}:{iteration_current}"
-                record = context_manager.get(partial_key)
-                if record:
+                value = context_manager.get(partial_key)
+                if value:
                     pattern_partial_keys_seen.append(partial_key)
 
         # At least one partial key should have been created during streaming
@@ -1004,9 +1001,9 @@ class TestAgentIncrementalContextWrites:
         if final_iteration is not None:
             for pattern_name in pattern_names:
                 partial_key = f"pattern_partial:{pattern_name}:{final_iteration}"
-                record = context_manager.get(partial_key)
+                value = context_manager.get(partial_key)
                 # Key should be deleted after pattern completes
-                assert record is None
+                assert value is None
 
     async def test_incremental_context_writes_with_tools(self, agent, agent_runner, mock_llm_provider, context_manager):
         """Test incremental writes during tool execution.
@@ -1113,10 +1110,10 @@ class TestAgentToolStateTracking:
         # Verify state keys were created
         for call_id in tool_call_ids:
             state_key = f"tool_state:{call_id}"
-            record = context_manager.get(state_key)
+            value = context_manager.get(state_key)
             # State should be either 'started' or already transitioned to 'finished'
-            assert record is not None
-            assert record.value in [b"started", b"finished"]
+            assert value is not None
+            assert value in ["started", "finished"]
 
     async def test_tool_state_tracking_finished(self, agent_runner, mock_llm_provider, context_manager):
         """Test state transitions to finished.
@@ -1135,9 +1132,9 @@ class TestAgentToolStateTracking:
         # Verify state is 'finished' for successful tools
         for call_id in tool_call_ids:
             state_key = f"tool_state:{call_id}"
-            record = context_manager.get(state_key)
-            assert record is not None
-            assert record.value == b"finished"
+            value = context_manager.get(state_key)
+            assert value is not None
+            assert value == "finished"
 
     async def test_tool_state_tracking_failed(self, agent, agent_runner, mock_llm_provider, context_manager, tool_registry):
         """Test state transitions to failed.
@@ -1167,9 +1164,9 @@ class TestAgentToolStateTracking:
         # Verify state is 'failed' for failed tools
         for call_id in failed_call_ids:
             state_key = f"tool_state:{call_id}"
-            record = context_manager.get(state_key)
-            assert record is not None
-            assert record.value == b"failed"
+            value = context_manager.get(state_key)
+            assert value is not None
+            assert value == "failed"
 
     async def test_tool_state_tracking_multiple_tools(self, agent_runner, mock_llm_provider, context_manager):
         """Test state tracking for multiple concurrent tools.
@@ -1192,10 +1189,10 @@ class TestAgentToolStateTracking:
 
         for call_id in tool_call_ids:
             state_key = f"tool_state:{call_id}"
-            record = context_manager.get(state_key)
-            assert record is not None
+            value = context_manager.get(state_key)
+            assert value is not None
             # Both should be finished
-            assert record.value == b"finished"
+            assert value == "finished"
 
 
 @pytest.mark.asyncio

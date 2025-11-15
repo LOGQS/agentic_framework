@@ -241,8 +241,8 @@ async def resilient_stream(
 
     Example:
         async def my_llm_call():
-            async for token in provider.stream(prompt):
-                yield token
+            async for chunk in provider.stream(prompt):
+                yield chunk
 
         async for item in resilient_stream(
             my_llm_call,
@@ -256,7 +256,7 @@ async def resilient_stream(
             elif isinstance(item, RateLimitEvent):
                 print(f"Rate limit acquired, {item.tokens_remaining} tokens remaining")
             else:
-                # Actual LLM token
+                # Actual LLM chunk
                 print(item, end="")
     """
     if rate_limiter:

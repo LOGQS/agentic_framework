@@ -12,7 +12,7 @@ from .context import ContextManager
 from .patterns import PatternRegistry, PatternExtractor, StreamingPatternExtractor
 from .tools import ToolRegistry
 from .events import (
-    AgentEvent, LLMTokenEvent, LLMCompleteEvent, StatusEvent,
+    AgentEvent, LLMChunkEvent, LLMCompleteEvent, StatusEvent,
     ToolStartEvent, ToolEndEvent, ToolValidationEvent, ToolDecisionEvent,
     ContextWriteEvent, ErrorEvent, StepCompleteEvent,
     PatternStartEvent, PatternContentEvent, PatternEndEvent
@@ -29,7 +29,7 @@ class LLMProvider(Protocol):
 
     Providers can implement streaming or non-streaming generation.
     If stream() is not implemented, framework will simulate streaming
-    by emitting the full generate() output as a single token.
+    by emitting the full generate() output as a single chunk.
 
     The prompt parameter accepts PromptType (Any). Providers interpret structure.
     """
@@ -49,7 +49,7 @@ class LLMProvider(Protocol):
 
     async def stream(self, prompt: PromptType, **kwargs) -> AsyncIterator[str]:
         """
-        Stream tokens from prompt (optional).
+        Stream chunks from prompt (optional).
 
         If not implemented, framework falls back to generate()
         and simulates streaming.
@@ -59,7 +59,7 @@ class LLMProvider(Protocol):
             **kwargs: Provider-specific options (model, temperature, max_tokens, etc.)
 
         Yields:
-            Token strings
+            Text chunks
         """
         text = self.generate(prompt, **kwargs)
         yield text
@@ -339,7 +339,7 @@ class AgentRunner:
         Execute agent step with streaming events.
 
         Yields events as execution progresses:
-        - LLMTokenEvent: As LLM generates tokens
+        - LLMChunkEvent: As LLM generates chunks
         - LLMCompleteEvent: When LLM completes
         - PatternStartEvent, PatternContentEvent, PatternEndEvent: As patterns detected
         - StatusEvent: When status changes
@@ -388,9 +388,9 @@ class AgentRunner:
         tool_event_queue: asyncio.Queue = asyncio.Queue()
 
         try:
-            async for token in self._agent.provider.stream(prompt=prompt):
-                raw_output_buffer.append(token)
-                yield LLMTokenEvent(token, step_id=step_id)
+            async for chunk in self._agent.provider.stream(prompt=prompt):
+                raw_output_buffer.append(chunk)
+                yield LLMChunkEvent(chunk, step_id=step_id)
 
                 while not tool_event_queue.empty():
                     try:
@@ -402,10 +402,10 @@ class AgentRunner:
                 if config.incremental_context_writes:
                     partial_output = "".join(raw_output_buffer)
                     streaming_key = f"llm_streaming:{current_iteration}"
-                    self._agent.context.update(streaming_key, partial_output.encode('utf-8'), iteration=current_iteration)
+                    self._agent.context.update(streaming_key, partial_output, iteration=current_iteration)
 
                 if pattern_extractor:
-                    for event_data in pattern_extractor.feed_token(token):
+                    for event_data in pattern_extractor.feed_chunk(chunk):
                         event_type = event_data[0]
 
                         if event_type == "pattern_start":
@@ -423,10 +423,10 @@ class AgentRunner:
                                 partial_key = f"pattern_partial:{pattern_name}:{current_iteration}"
                                 existing = self._agent.context.get(partial_key)
                                 if existing:
-                                    accumulated = existing.value.decode('utf-8') + content
+                                    accumulated = existing + content
                                 else:
                                     accumulated = content
-                                self._agent.context.update(partial_key, accumulated.encode('utf-8'), iteration=current_iteration)
+                                self._agent.context.update(partial_key, accumulated, iteration=current_iteration)
 
                         elif event_type == "pattern_end":
                             _, pattern_name, pattern_type, full_content, tool_call = event_data
@@ -435,7 +435,7 @@ class AgentRunner:
                             if pattern_type not in pattern_counters:
                                 pattern_counters[pattern_type] = 0
                             pattern_key = f"pattern:{pattern_type}:{current_iteration}:{pattern_counters[pattern_type]}"
-                            self._agent.context.set(pattern_key, full_content.encode('utf-8'), iteration=current_iteration)
+                            self._agent.context.set(pattern_key, full_content, iteration=current_iteration)
                             pattern_counters[pattern_type] += 1
 
                             if config.incremental_context_writes:
@@ -650,16 +650,20 @@ class AgentRunner:
 
         if config.incremental_context_writes:
             for context_key, _ in config.output_mapping:
-                record = self._agent.context.get(context_key)
+                record = self._agent.context.get_record(context_key)
                 if record:
-                    preview = record.value.decode('utf-8')[:100] if len(record.value) < 100 else record.value.decode('utf-8')[:97] + "..."
-                    yield ContextWriteEvent(
-                        key=context_key,
-                        value_preview=preview,
-                        version=record.version,
-                        iteration=record.iteration,
-                        step_id=step_id
-                    )
+                    try:
+                        value = record.value.decode('utf-8')
+                        preview = value[:100] if len(value) < 100 else value[:97] + "..."
+                        yield ContextWriteEvent(
+                            key=context_key,
+                            value_preview=preview,
+                            version=record.version,
+                            iteration=record.iteration,
+                            step_id=step_id
+                        )
+                    except UnicodeDecodeError:
+                        pass
 
         # Match tool results back to decisions and mark as executed
         for tool_result in tool_results:
@@ -829,12 +833,9 @@ class AgentRunner:
             if context_key.startswith("literal:"):
                 parts.append(context_key[8:])
             else:
-                record = self._agent.context.get(context_key)
-                if record is not None:
-                    try:
-                        parts.append(record.value.decode('utf-8'))
-                    except UnicodeDecodeError:
-                        pass
+                value = self._agent.context.get(context_key)
+                if value is not None:
+                    parts.append(value)
 
         if user_input:
             parts.append(user_input)
@@ -1145,24 +1146,24 @@ class AgentRunner:
 
         for context_key, operation in config.output_mapping:
             if operation == "set_latest":
-                self._agent.context.set(context_key, raw_output.encode('utf-8'), iteration=iteration)
+                self._agent.context.set(context_key, raw_output, iteration=iteration)
 
             elif operation == "append_version":
                 existing = self._agent.context.get(context_key)
                 if existing:
-                    combined = existing.value.decode('utf-8') + "\n\n" + raw_output
+                    combined = existing + "\n\n" + raw_output
                 else:
                     combined = raw_output
-                self._agent.context.set(context_key, combined.encode('utf-8'), iteration=iteration)
+                self._agent.context.set(context_key, combined, iteration=iteration)
 
             elif operation == "set_response":
                 if segments.response:
-                    self._agent.context.set(context_key, segments.response.encode('utf-8'), iteration=iteration)
+                    self._agent.context.set(context_key, segments.response, iteration=iteration)
 
             elif operation == "set_reasoning":
                 if segments.reasoning:
                     reasoning_text = "\n".join(segments.reasoning)
-                    self._agent.context.set(context_key, reasoning_text.encode('utf-8'), iteration=iteration)
+                    self._agent.context.set(context_key, reasoning_text, iteration=iteration)
 
             elif operation == "set_tools":
                 if tool_results:
@@ -1174,7 +1175,7 @@ class AgentRunner:
                         }
                         for tr in tool_results
                     ])
-                    self._agent.context.set(context_key, tools_data.encode('utf-8'), iteration=iteration)
+                    self._agent.context.set(context_key, tools_data, iteration=iteration)
 
     def _step_in_thread(self, user_input: str | None, processing_mode: ProcessingMode | None = None) -> AgentStepResult:
         with ThreadPoolExecutor(max_workers=1) as executor:

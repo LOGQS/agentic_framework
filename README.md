@@ -79,7 +79,7 @@ class MyLLMProvider:
         pass
 
     async def stream(self, prompt, **kwargs):
-        # Stream tokens for real-time execution
+        # Stream chunks for real-time execution
         text = self.generate(prompt, **kwargs)
         yield text
 
@@ -106,12 +106,12 @@ print(f"Status: {result.status}, Response: {result.segments.response}")
 
 # Streaming execution
 import asyncio
-from agentic import LLMTokenEvent, ToolStartEvent, StepCompleteEvent
+from agentic import LLMChunkEvent, ToolStartEvent, StepCompleteEvent
 
 async def stream_example():
     async for event in runner.step_stream("Your prompt"):
-        if isinstance(event, LLMTokenEvent):
-            print(event.token, end="", flush=True)
+        if isinstance(event, LLMChunkEvent):
+            print(event.chunk, end="", flush=True)
         elif isinstance(event, ToolStartEvent):
             print(f"\n[Tool: {event.tool_name}]")
         elif isinstance(event, StepCompleteEvent):
@@ -160,7 +160,7 @@ agentic/
 - `PatternSet`: Collection of patterns with configuration
 - `PatternRegistry`: Persistent pattern set storage in RocksDB
 - `PatternExtractor`: Batch regex-based extraction
-- `StreamingPatternExtractor`: Incremental token processing with malformed pattern handling
+- `StreamingPatternExtractor`: Incremental chunk processing with malformed pattern handling
 - Built-in pattern sets: `default`, `json_tools`, `xml_tools`, `backtick_tools`
 
 **Tools** (`tools.py`):
@@ -182,7 +182,7 @@ agentic/
 
 **Logic** (`logic.py`):
 - `LogicRunner`: Conditional loops with `run()` (batch) and `run_stream()` (streaming)
-- `LogicCondition`: Pattern/regex/context-based conditions with evaluation points (`auto`, `llm_token`, `llm_complete`, `tool_detected`, `tool_finished`, `step_complete`, `any_event`)
+- `LogicCondition`: Pattern/regex/context-based conditions with evaluation points (`auto`, `llm_chunk`, `llm_complete`, `tool_detected`, `tool_finished`, `step_complete`, `any_event`)
 - `LogicConfig`: Loop configuration with `max_iterations`, `stop_conditions`, `loop_until_conditions`, `break_on_error`, `context_health_checks`
 - `ContextHealthCheck`: Monitor context size, version count, growth rate with configurable thresholds and actions
 - Helper functions: `loop_n_times()`, `loop_until_pattern()`, `loop_until_regex()`, `stop_on_error()`
@@ -194,7 +194,7 @@ agentic/
 - Support for JSON Schema, XML Schema, Protocol Buffers, or custom validators
 
 **Events** (`events.py`):
-17 event types: `LLMTokenEvent`, `LLMCompleteEvent`, `PatternStartEvent`, `PatternContentEvent`, `PatternEndEvent`, `StatusEvent`, `ToolStartEvent`, `ToolDecisionEvent`, `ToolOutputEvent`, `ToolEndEvent`, `ToolValidationEvent`, `ContextWriteEvent`, `ErrorEvent`, `StepCompleteEvent`, `RetryEvent`, `RateLimitEvent`, `ContextHealthEvent`
+17 event types: `LLMChunkEvent`, `LLMCompleteEvent`, `PatternStartEvent`, `PatternContentEvent`, `PatternEndEvent`, `StatusEvent`, `ToolStartEvent`, `ToolDecisionEvent`, `ToolOutputEvent`, `ToolEndEvent`, `ToolValidationEvent`, `ContextWriteEvent`, `ErrorEvent`, `StepCompleteEvent`, `RetryEvent`, `RateLimitEvent`, `ContextHealthEvent`
 
 **Logging** (`logging_util.py`):
 - Structured logger with contextual metadata
@@ -363,8 +363,8 @@ limiter = RateLimiter(rate_config)
 
 # Combined resilient stream
 async def my_llm_call():
-    async for token in provider.stream(prompt):
-        yield token
+    async for chunk in provider.stream(prompt):
+        yield chunk
 
 async for item in resilient_stream(
     my_llm_call,

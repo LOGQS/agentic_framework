@@ -205,12 +205,8 @@ def create_message_prompt_builder() -> Callable[["ContextManager", "AgentConfig"
             if context_key.startswith("literal:"):
                 content = context_key[8:]
             else:
-                record = context.get(context_key)
-                if record is None:
-                    continue
-                try:
-                    content = record.value.decode('utf-8')
-                except (UnicodeDecodeError, AttributeError):
+                content = context.get(context_key)
+                if content is None:
                     continue
 
             if role == "system":

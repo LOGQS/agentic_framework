@@ -21,12 +21,12 @@ class BaseEvent:
 
 
 @dataclass(init=False)
-class LLMTokenEvent(BaseEvent):
-    token: str
+class LLMChunkEvent(BaseEvent):
+    chunk: str
 
-    def __init__(self, token: str, timestamp: float = None, step_id: str = ""):
-        self.token = token
-        self.type = "llm_token"
+    def __init__(self, chunk: str, timestamp: float = None, step_id: str = ""):
+        self.chunk = chunk
+        self.type = "llm_chunk"
         self.timestamp = timestamp or now_timestamp()
         self.step_id = step_id
 
@@ -319,7 +319,7 @@ class ContextHealthEvent(BaseEvent):
 
 
 AgentEvent = (
-    LLMTokenEvent | LLMCompleteEvent | StatusEvent |
+    LLMChunkEvent | LLMCompleteEvent | StatusEvent |
     ToolStartEvent | ToolDecisionEvent | ToolOutputEvent | ToolEndEvent | ToolValidationEvent |
     ContextWriteEvent | ErrorEvent |
     PatternStartEvent | PatternContentEvent | PatternEndEvent |

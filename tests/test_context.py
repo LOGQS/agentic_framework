@@ -89,8 +89,11 @@ class TestContextManagerBasics:
 
         retrieved = context_manager.get(key)
         assert retrieved is not None
-        assert retrieved.value == value
-        assert retrieved.version == 1
+        assert retrieved == "test_value"
+
+        retrieved_record = context_manager.get_record(key)
+        assert retrieved_record.value == value
+        assert retrieved_record.version == 1
 
     def test_get_nonexistent_key(self, context_manager):
         """Test getting a key that doesn't exist."""
@@ -105,8 +108,11 @@ class TestContextManagerBasics:
         context_manager.set(key, b"v3")
 
         # Get version 2
-        record = context_manager.get(key, version=2)
-        assert record is not None
+        value = context_manager.get(key, version=2)
+        assert value is not None
+        assert value == "v2"
+
+        record = context_manager.get_record(key, version=2)
         assert record.value == b"v2"
         assert record.version == 2
 
@@ -118,8 +124,11 @@ class TestContextManagerBasics:
         context_manager.set(key, b"v3")
 
         latest = context_manager.get(key)
-        assert latest.value == b"v3"
-        assert latest.version == 3
+        assert latest == "v3"
+
+        latest_record = context_manager.get_record(key)
+        assert latest_record.value == b"v3"
+        assert latest_record.version == 3
 
 
 class TestContextVersioning:
@@ -234,8 +243,11 @@ class TestContextDeletion:
         context_manager.delete(key)  # version 2 (tombstone)
         context_manager.set(key, b"v3")  # version 3
 
-        record = context_manager.get(key)
-        assert record is not None
+        value = context_manager.get(key)
+        assert value is not None
+        assert value == "v3"
+
+        record = context_manager.get_record(key)
         assert record.value == b"v3"
         assert record.version == 3
 
@@ -397,7 +409,10 @@ class TestContextClear:
         context_manager.clear()
 
         context_manager.set("key", b"v2")
-        record = context_manager.get("key")
+        value = context_manager.get("key")
+        assert value == "v2"
+
+        record = context_manager.get_record("key")
         assert record.value == b"v2"
         assert record.version == 1  # Version resets after clear
 
@@ -473,7 +488,10 @@ class TestContextUpdate:
         assert r2.version == 1  # Same version, not incremented!
 
         # Verify the value was actually updated
-        record = context_manager.get("key")
+        value = context_manager.get("key")
+        assert value == "updated"
+
+        record = context_manager.get_record("key")
         assert record.value == b"updated"
         assert record.version == 1
 
@@ -486,8 +504,11 @@ class TestContextUpdate:
         r1 = context_manager.update("new_key", b"value")
         assert r1.version == 1
 
-        record = context_manager.get("new_key")
-        assert record is not None
+        value = context_manager.get("new_key")
+        assert value is not None
+        assert value == "value"
+
+        record = context_manager.get_record("new_key")
         assert record.value == b"value"
         assert record.version == 1
 
@@ -500,7 +521,7 @@ class TestContextUpdate:
         r1 = context_manager.update("key", b"value", iteration=5)
         assert r1.iteration == 5
 
-        record = context_manager.get("key")
+        record = context_manager.get_record("key")
         assert record.iteration == 5
 
     def test_update_overwrites_existing_version(self, context_manager):
@@ -512,7 +533,10 @@ class TestContextUpdate:
         context_manager.set("key", b"v1")  # version 1
         context_manager.update("key", b"v1_updated")  # still version 1
 
-        record = context_manager.get("key")
+        value = context_manager.get("key")
+        assert value == "v1_updated"
+
+        record = context_manager.get_record("key")
         assert record.version == 1
         assert record.value == b"v1_updated"
 
@@ -537,14 +561,17 @@ class TestContextUpdate:
 
         # Latest should be updated
         latest = context_manager.get("key")
-        assert latest.version == 3
-        assert latest.value == b"v3_updated"
+        assert latest == "v3_updated"
+
+        latest_record = context_manager.get_record("key")
+        assert latest_record.version == 3
+        assert latest_record.value == b"v3_updated"
 
         # Older versions should be unchanged
         v1 = context_manager.get("key", version=1)
-        assert v1.value == b"v1"
+        assert v1 == "v1"
         v2 = context_manager.get("key", version=2)
-        assert v2.value == b"v2"
+        assert v2 == "v2"
 
     def test_update_updates_timestamp(self, context_manager):
         """Test that update() updates the timestamp.
@@ -586,17 +613,23 @@ class TestContextUpdate:
         context_manager.set("key", b"v1")  # version 1
 
         context_manager.update("key", b"update1")
-        record = context_manager.get("key")
+        value = context_manager.get("key")
+        assert value == "update1"
+        record = context_manager.get_record("key")
         assert record.version == 1
         assert record.value == b"update1"
 
         context_manager.update("key", b"update2")
-        record = context_manager.get("key")
+        value = context_manager.get("key")
+        assert value == "update2"
+        record = context_manager.get_record("key")
         assert record.version == 1
         assert record.value == b"update2"
 
         context_manager.update("key", b"update3")
-        record = context_manager.get("key")
+        value = context_manager.get("key")
+        assert value == "update3"
+        record = context_manager.get_record("key")
         assert record.version == 1
         assert record.value == b"update3"
 
@@ -607,7 +640,9 @@ class TestContextEdgeCases:
     def test_empty_value(self, context_manager):
         """Test storing empty bytes value."""
         context_manager.set("empty", b"")
-        record = context_manager.get("empty")
+        value = context_manager.get("empty")
+        assert value == ""
+        record = context_manager.get_record("empty")
         assert record.value == b""
 
     def test_large_value(self, context_manager):
@@ -615,7 +650,10 @@ class TestContextEdgeCases:
         large_value = b"x" * (1024 * 1024)  # 1MB
         context_manager.set("large", large_value)
 
-        record = context_manager.get("large")
+        value = context_manager.get("large")
+        assert len(value) == len(large_value)
+
+        record = context_manager.get_record("large")
         assert len(record.value) == len(large_value)
 
     def test_unicode_key(self, context_manager):
@@ -623,7 +661,10 @@ class TestContextEdgeCases:
         key = "unicode_\u00e9\u00f1"
         context_manager.set(key, b"value")
 
-        record = context_manager.get(key)
+        value = context_manager.get(key)
+        assert value == "value"
+
+        record = context_manager.get_record(key)
         assert record.value == b"value"
 
     def test_unicode_value(self, context_manager):
@@ -631,7 +672,10 @@ class TestContextEdgeCases:
         value = "unicode_\u4e2d\u6587".encode('utf-8')
         context_manager.set("key", value)
 
-        record = context_manager.get("key")
+        retrieved = context_manager.get("key")
+        assert retrieved == "unicode_\u4e2d\u6587"
+
+        record = context_manager.get_record("key")
         assert record.value == value
         assert record.value.decode('utf-8') == "unicode_\u4e2d\u6587"
 
@@ -642,12 +686,15 @@ class TestContextEdgeCases:
             context_manager.set(key, f"v{i}".encode('utf-8'))
 
         latest = context_manager.get(key)
-        assert latest.version == 100
-        assert latest.value == b"v99"
+        assert latest == "v99"
+
+        latest_record = context_manager.get_record(key)
+        assert latest_record.version == 100
+        assert latest_record.value == b"v99"
 
         # Get specific version
         v50 = context_manager.get(key, version=50)
-        assert v50.value == b"v49"
+        assert v50 == "v49"
 
     def test_concurrent_keys(self, context_manager):
         """Test managing many different keys."""
@@ -659,7 +706,7 @@ class TestContextEdgeCases:
 
         # All should be retrievable
         for i in range(100):
-            record = context_manager.get(f"key{i}")
-            assert record.value == f"value{i}".encode('utf-8')
+            value = context_manager.get(f"key{i}")
+            assert value == f"value{i}"
 
 

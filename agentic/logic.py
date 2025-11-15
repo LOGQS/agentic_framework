@@ -13,7 +13,7 @@ from .patterns import PatternRegistry
 from .core import AgentStepResult, AgentStatus, ProcessingMode, output_to_string
 from .events import (
     AgentEvent, StatusEvent, StepCompleteEvent,
-    LLMCompleteEvent, LLMTokenEvent, PatternEndEvent, ToolEndEvent,
+    LLMCompleteEvent, LLMChunkEvent, PatternEndEvent, ToolEndEvent,
     PatternStartEvent, ToolStartEvent, ToolOutputEvent, ContextWriteEvent, ErrorEvent, PatternContentEvent,
     ContextHealthEvent
 )
@@ -25,7 +25,7 @@ class LogicCondition:
     pattern_name: str
     match_type: str  # "contains" | "equals" | "regex"
     target: str  # "response" | "reasoning" | "tool_output" | "context:{key}"
-    evaluation_point: str = "auto"  # "auto" | "llm_token" | "llm_complete" | "tool_detected" | "tool_finished" | "step_complete" | "any_event"
+    evaluation_point: str = "auto"  # "auto" | "llm_chunk" | "llm_complete" | "tool_detected" | "tool_finished" | "step_complete" | "any_event"
     # "auto" uses smart defaults: pattern/regex → llm_complete, context → step_complete
 
 
@@ -109,7 +109,7 @@ class LogicRunner:
 
         Evaluates conditions at appropriate points based on evaluation_point:
         - "auto": infers from target (context → step_complete, patterns → llm_complete)
-        - "llm_token": on every LLM chunk as it streams (LLMTokenEvent)
+        - "llm_chunk": on every LLM chunk as it streams (LLMChunkEvent)
         - "llm_complete": after LLMCompleteEvent
         - "tool_detected": after PatternEndEvent with tool type
         - "tool_finished": after ToolEndEvent (tool execution completes)
@@ -121,9 +121,9 @@ class LogicRunner:
 
         yield StatusEvent(AgentStatus.OK, f"Starting logic loop: {self._config.logic_id}")
 
-        needs_llm_token_eval = self._has_conditions_for_event("llm_token")
+        needs_llm_chunk_eval = self._has_conditions_for_event("llm_chunk")
         needs_any_event_eval = self._has_conditions_for_event("any_event")
-        should_accumulate_partial = needs_llm_token_eval or needs_any_event_eval
+        should_accumulate_partial = needs_llm_chunk_eval or needs_any_event_eval
 
         max_buffer_size = self._agent_runner._agent.get_config().max_partial_buffer_size
 
@@ -145,8 +145,8 @@ class LogicRunner:
             async for event in self._agent_runner.step_stream(current_input, processing_mode):
                 yield event
 
-                if should_accumulate_partial and isinstance(event, LLMTokenEvent):
-                    partial_raw_output += event.token
+                if should_accumulate_partial and isinstance(event, LLMChunkEvent):
+                    partial_raw_output += event.chunk
 
                     if len(partial_raw_output) > max_buffer_size:
                         partial_raw_output = partial_raw_output[-max_buffer_size:]
@@ -155,9 +155,9 @@ class LogicRunner:
                 event_type = None
                 eval_context = None
 
-                if isinstance(event, LLMTokenEvent):
-                    event_type = "llm_token"
-                    should_check = self._has_conditions_for_event("llm_token")
+                if isinstance(event, LLMChunkEvent):
+                    event_type = "llm_chunk"
+                    should_check = self._has_conditions_for_event("llm_chunk")
                     eval_context = {"raw_output": partial_raw_output or ""}
 
                 elif isinstance(event, LLMCompleteEvent):
@@ -439,12 +439,7 @@ class LogicRunner:
             return result.raw_output
         elif target.startswith("context:"):
             context_key = target[8:]
-            record = self._context.get(context_key)
-            if record:
-                try:
-                    return record.value.decode('utf-8')
-                except (UnicodeDecodeError, AttributeError):
-                    return None
+            return self._context.get(context_key)
         return None
 
     def _get_target_text(self, target: str, result: AgentStepResult) -> str | None:
@@ -464,13 +459,7 @@ class LogicRunner:
 
         elif target.startswith("context:"):
             context_key = target[8:]
-            record = self._context.get(context_key)
-            if record:
-                try:
-                    return record.value.decode('utf-8')
-                except (UnicodeDecodeError, AttributeError):
-                    return None
-            return None
+            return self._context.get(context_key)
 
         return None
 
@@ -566,12 +555,7 @@ class LogicRunner:
                 target_text = context.get("tool_output")
             elif condition.target.startswith("context:"):
                 context_key = condition.target[8:]
-                record = self._context.get(context_key)
-                if record:
-                    try:
-                        target_text = record.value.decode('utf-8')
-                    except (UnicodeDecodeError, AttributeError):
-                        return False
+                target_text = self._context.get(context_key)
 
             if target_text is None:
                 return False
@@ -591,12 +575,7 @@ class LogicRunner:
                 target_text = context.get("tool_output")
             elif condition.target.startswith("context:"):
                 context_key = condition.target[8:]
-                record = self._context.get(context_key)
-                if record:
-                    try:
-                        target_text = record.value.decode('utf-8')
-                    except (UnicodeDecodeError, AttributeError):
-                        return False
+                target_text = self._context.get(context_key)
 
             if target_text is None:
                 return False
@@ -631,12 +610,7 @@ class LogicRunner:
                 target_text = context.get("tool_output")
             elif condition.target.startswith("context:"):
                 context_key = condition.target[8:]
-                record = self._context.get(context_key)
-                if record:
-                    try:
-                        target_text = record.value.decode('utf-8')
-                    except (UnicodeDecodeError, AttributeError):
-                        return False
+                target_text = self._context.get(context_key)
 
             if target_text is None:
                 return False
@@ -668,12 +642,12 @@ class LogicRunner:
 
         for key in matching_keys:
             if check.check_type == "size":
-                record = self._context.get(key)
-                if record and len(record.value) > check.threshold:
+                value = self._context.get_bytes(key)
+                if value and len(value) > check.threshold:
                     events.append(ContextHealthEvent(
                         check_type="size",
                         key=key,
-                        current_value=float(len(record.value)),
+                        current_value=float(len(value)),
                         threshold=check.threshold,
                         recommended_action=check.action
                     ))

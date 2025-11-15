@@ -455,14 +455,14 @@ class _ActivePattern:
 
 class StreamingPatternExtractor:
     """
-    Stateful pattern extractor that processes tokens incrementally.
+    Stateful pattern extractor that processes chunks incrementally.
 
     Uses regex matching (like batch PatternExtractor) to correctly handle:
     - Multiple instances of same pattern type
     - Nested patterns
     - Proper start/end tag pairing
 
-    Detects patterns as they arrive in the token stream:
+    Detects patterns as they arrive in the chunk stream:
     - Detects opening tags (<tool>, <reasoning>, <response>)
     - Streams content immediately after start tag (if enabled)
     - Detects closing tags (</tool>, </reasoning>, </response>)
@@ -493,9 +493,9 @@ class StreamingPatternExtractor:
         # Initialize mutable state (will be reset for reuse)
         self._reset_state()
 
-    def feed_token(self, token: str) -> Iterator[Any]:
+    def feed_chunk(self, chunk: str) -> Iterator[Any]:
         """
-        Feed a token to the extractor.
+        Feed a chunk to the extractor.
 
         Returns iterator of events:
         - ("pattern_start", pattern_name, pattern_type)
@@ -503,14 +503,14 @@ class StreamingPatternExtractor:
         - ("pattern_end", pattern_name, pattern_type, full_content, ToolCall|None)
         """
 
-        if len(self._buffer) + len(token) > self._max_buffer_size:
+        if len(self._buffer) + len(chunk) > self._max_buffer_size:
             raise ValueError(
                 f"Pattern buffer exceeded maximum size of {self._max_buffer_size} bytes. "
-                f"Current: {len(self._buffer)}, token: {len(token)}"
+                f"Current: {len(self._buffer)}, chunk: {len(chunk)}"
             )
 
         previous_len = len(self._buffer)
-        self._buffer += token
+        self._buffer += chunk
         buffer_len = len(self._buffer)
 
         for pattern in self._pattern_set.patterns:
@@ -643,7 +643,7 @@ class StreamingPatternExtractor:
 
     def finalize(self, iteration: int = 0) -> tuple[ExtractedSegments, dict[str, str]]:
         """
-        Called when token stream ends.
+        Called when chunk stream ends.
 
         Returns:
             (ExtractedSegments, malformed_patterns_dict)

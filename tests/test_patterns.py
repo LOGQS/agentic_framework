@@ -216,7 +216,7 @@ class TestStreamingPatternExtractor:
 
         events = []
         for char in "<tool>test</tool>":
-            for event in extractor.feed_token(char):
+            for event in extractor.feed_chunk(char):
                 events.append(event)
 
         # Should have pattern_start and pattern_end
@@ -232,7 +232,7 @@ class TestStreamingPatternExtractor:
         events = []
         text = "<tool>content</tool>"
         for char in text:
-            for event in extractor.feed_token(char):
+            for event in extractor.feed_chunk(char):
                 events.append(event)
 
         event_types = [e[0] for e in events]
@@ -246,7 +246,7 @@ class TestStreamingPatternExtractor:
         extractor = StreamingPatternExtractor(pset)
 
         for char in "<tool>complete</tool>":
-            list(extractor.feed_token(char))
+            list(extractor.feed_chunk(char))
 
         segments, malformed = extractor.finalize(iteration=1)
         assert malformed == {}
@@ -258,7 +258,7 @@ class TestStreamingPatternExtractor:
 
         text = "<tool>incomplete"
         for char in text:
-            list(extractor.feed_token(char))
+            list(extractor.feed_chunk(char))
 
         segments, malformed = extractor.finalize()
         assert "tool" in malformed
@@ -271,7 +271,7 @@ class TestStreamingPatternExtractor:
 
         text = "<reasoning>think</reasoning><response>answer</response>"
         for char in text:
-            list(extractor.feed_token(char))
+            list(extractor.feed_chunk(char))
 
         segments, _ = extractor.finalize()
         assert len(segments.reasoning) == 1
@@ -284,7 +284,7 @@ class TestStreamingPatternExtractor:
 
         text = '<tool>{"name": "test", "arguments": {}}</tool>'
         for char in text:
-            list(extractor.feed_token(char))
+            list(extractor.feed_chunk(char))
 
         segments, _ = extractor.finalize(iteration=1)
         assert len(segments.tools) == 1
@@ -294,7 +294,7 @@ class TestStreamingPatternExtractor:
 class TestStreamingSearchPointer:
     """Additional tests ensuring streaming extractor maintains coverage."""
 
-    def test_many_reasoning_segments_small_tokens(self):
+    def test_many_reasoning_segments_small_chunks(self):
         """Feeding many reasoning segments character-by-character should capture all."""
         pset = create_default_pattern_set()
         extractor = StreamingPatternExtractor(pset, stream_content=False)
@@ -303,7 +303,7 @@ class TestStreamingSearchPointer:
         text = "".join(f"<reasoning>{value}</reasoning>" for value in expected)
 
         for ch in text:
-            list(extractor.feed_token(ch))
+            list(extractor.feed_chunk(ch))
 
         segments, malformed = extractor.finalize()
 
@@ -318,11 +318,11 @@ class TestStreamingSearchPointer:
 
         large_tool = '<tool>{"name": "echo", "arguments": {"data": "' + ("x" * 2048) + '"}}</tool>'
         for ch in large_tool:
-            list(extractor.feed_token(ch))
+            list(extractor.feed_chunk(ch))
         extractor.finalize()
 
         for ch in "<response>done</response>":
-            list(extractor.feed_token(ch))
+            list(extractor.feed_chunk(ch))
 
         segments, malformed = extractor.finalize()
         assert segments.response == "done"
@@ -337,7 +337,7 @@ class TestStreamingSearchPointer:
         text = ("noise" * 500) + "<response>answer</response>"
 
         for ch in text:
-            list(extractor.feed_token(ch))
+            list(extractor.feed_chunk(ch))
 
         segments, malformed = extractor.finalize()
 
@@ -483,44 +483,44 @@ class TestEdgeCases:
 class TestOverlapWindowOptimization:
     """Tests for overlap window optimization in StreamingPatternExtractor."""
 
-    def test_pattern_spanning_two_tokens(self):
-        """Test patterns that span exactly 2 tokens.
+    def test_pattern_spanning_two_chunks(self):
+        """Test patterns that span exactly 2 chunks.
 
-        This tests the overlap window by ensuring patterns that start in one token
+        This tests the overlap window by ensuring patterns that start in one chunk
         and end in the next are correctly detected.
         """
         pset = create_default_pattern_set()
         extractor = StreamingPatternExtractor(pset, stream_content=False)
 
         # Split pattern across two tokens: "<too" and "l>test</tool>"
-        token1 = "<too"
-        token2 = "l>test</tool>"
+        chunk1 = "<too"
+        chunk2 = "l>test</tool>"
 
         events = []
-        for event in extractor.feed_token(token1):
+        for event in extractor.feed_chunk(chunk1):
             events.append(event)
-        for event in extractor.feed_token(token2):
+        for event in extractor.feed_chunk(chunk2):
             events.append(event)
 
         # Should detect the complete pattern
         event_types = [e[0] for e in events]
         assert "pattern_end" in event_types
 
-    def test_pattern_spanning_three_tokens(self):
-        """Test patterns that span exactly 3 tokens.
+    def test_pattern_spanning_three_chunks(self):
+        """Test patterns that span exactly 3 chunks.
 
         This ensures the overlap window correctly handles patterns spanning
-        multiple token boundaries.
+        multiple chunk boundaries.
         """
         pset = create_default_pattern_set()
         extractor = StreamingPatternExtractor(pset, stream_content=False)
 
-        # Split across three tokens
-        tokens = ["<to", "ol>con", "tent</tool>"]
+        # Split across three chunks
+        chunks= ["<to", "ol>con", "tent</tool>"]
 
         events = []
-        for token in tokens:
-            for event in extractor.feed_token(token):
+        for chunk in chunks:
+            for event in extractor.feed_chunk(chunk):
                 events.append(event)
 
         event_types = [e[0] for e in events]
@@ -536,13 +536,13 @@ class TestOverlapWindowOptimization:
         extractor = StreamingPatternExtractor(pset, stream_content=False)
 
         # Split end tag exactly: "<tool>test</" and "tool>"
-        token1 = "<tool>test</"
-        token2 = "tool>"
+        chunk1 = "<tool>test</"
+        chunk2 = "tool>"
 
         events = []
-        for event in extractor.feed_token(token1):
+        for event in extractor.feed_chunk(chunk1):
             events.append(event)
-        for event in extractor.feed_token(token2):
+        for event in extractor.feed_chunk(chunk2):
             events.append(event)
 
         event_types = [e[0] for e in events]
@@ -554,7 +554,7 @@ class TestOverlapWindowOptimization:
         assert len(segments.tools) == 0
 
     def test_multiple_patterns_with_overlap_boundaries(self):
-        """Test multiple patterns split across token boundaries.
+        """Test multiple patterns split across chunkboundaries.
 
         This ensures the overlap window optimization doesn't interfere when
         multiple patterns are split across tokens.
@@ -563,15 +563,15 @@ class TestOverlapWindowOptimization:
         extractor = StreamingPatternExtractor(pset, stream_content=False)
 
         # First pattern split, then second pattern split
-        tokens = [
+        chunks= [
             "<reason",
             "ing>think</reasoning><respo",
             "nse>answer</response>"
         ]
 
         events = []
-        for token in tokens:
-            for event in extractor.feed_token(token):
+        for chunk in chunks:
+            for event in extractor.feed_chunk(chunk):
                 events.append(event)
 
         segments, _ = extractor.finalize()
@@ -606,7 +606,7 @@ class TestParseErrorMessages:
         # Feed invalid JSON
         text = '<tool>{"name": "test", invalid}</tool>'
         for char in text:
-            list(extractor.feed_token(char))
+            list(extractor.feed_chunk(char))
 
         segments, malformed = extractor.finalize()
 
@@ -631,7 +631,7 @@ class TestParseErrorMessages:
         # Tool call without 'name' field - line format but missing name
         text = '<tool>arguments: {"key": "value"}</tool>'
         for char in text:
-            list(extractor.feed_token(char))
+            list(extractor.feed_chunk(char))
 
         segments, malformed = extractor.finalize()
 
@@ -653,7 +653,7 @@ class TestParseErrorMessages:
         text = f'<tool>{large_content}</tool>'
 
         for char in text:
-            list(extractor.feed_token(char))
+            list(extractor.feed_chunk(char))
 
         segments, malformed = extractor.finalize()
 
@@ -696,9 +696,6 @@ class TestPerformanceBenchmarks:
 
         This test verifies that the overlap window optimization provides
         meaningful performance improvement for large buffers.
-
-        Without optimization: O(n²) - searches entire buffer for each token
-        With optimization: O(n) - searches only new content + overlap window
         """
         pset = create_default_pattern_set()
 
@@ -713,7 +710,7 @@ class TestPerformanceBenchmarks:
 
         start = time.time()
         for char in full_text:
-            list(extractor.feed_token(char))
+            list(extractor.feed_chunk(char))
         elapsed_optimized = time.time() - start
 
         segments, _ = extractor.finalize()
@@ -739,7 +736,7 @@ class TestPerformanceBenchmarks:
 
         start = time.time()
         for char in patterns_text:
-            list(extractor.feed_token(char))
+            list(extractor.feed_chunk(char))
         elapsed = time.time() - start
 
         segments, _ = extractor.finalize()
@@ -758,7 +755,7 @@ class TestStreamingExtractorReuse:
 
         first_text = "<response>First</response>"
         for char in first_text:
-            list(extractor.feed_token(char))
+            list(extractor.feed_chunk(char))
         segments1, malformed1 = extractor.finalize()
 
         assert segments1.response == "First"
@@ -766,7 +763,7 @@ class TestStreamingExtractorReuse:
 
         second_text = "<response>Second</response>"
         for char in second_text:
-            list(extractor.feed_token(char))
+            list(extractor.feed_chunk(char))
         segments2, malformed2 = extractor.finalize()
 
         assert segments2.response == "Second"

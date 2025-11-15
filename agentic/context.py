@@ -139,10 +139,61 @@ class ContextManager:
 
         return record
 
-    def get(self, key: str, version: int | None = None) -> ContextRecord | None:
+    def get(self, key: str, version: int | None = None) -> str | None:
         """
-        Get context value (latest version if version not specified).
-        Returns None if key doesn't exist or is deleted.
+        Get context value as decoded UTF-8 string.
+
+        Returns None if key doesn't exist, is deleted, or cannot be decoded.
+        For binary data or metadata access, use get_bytes() or get_record().
+
+        Args:
+            key: Context key
+            version: Specific version number (defaults to latest)
+
+        Returns:
+            Decoded string value or None
+        """
+        record = self.get_record(key, version)
+        if record is None:
+            return None
+
+        try:
+            return record.value.decode('utf-8')
+        except (UnicodeDecodeError, AttributeError):
+            return None
+
+    def get_bytes(self, key: str, version: int | None = None) -> bytes | None:
+        """
+        Get context value as raw bytes.
+
+        Use this for binary data (images, pickled objects, etc.).
+        For text data, use get() which auto-decodes UTF-8.
+
+        Args:
+            key: Context key
+            version: Specific version number (defaults to latest)
+
+        Returns:
+            Raw bytes value or None
+        """
+        record = self.get_record(key, version)
+        if record is None:
+            return None
+        return record.value
+
+    def get_record(self, key: str, version: int | None = None) -> ContextRecord | None:
+        """
+        Get full context record with metadata (version, iteration, timestamp).
+
+        Use this when you need access to version/iteration/timestamp metadata.
+        For just the value, use get() or get_bytes().
+
+        Args:
+            key: Context key
+            version: Specific version number (defaults to latest)
+
+        Returns:
+            ContextRecord with metadata or None
         """
         if version is None:
             latest_key = f"context:{key}:latest".encode('utf-8')
@@ -230,7 +281,7 @@ class ContextManager:
         history = []
 
         for v in range(latest_version, 0, -1):
-            record = self.get(key, version=v)
+            record = self.get_record(key, version=v)
             if record is not None:
                 history.append(record)
 

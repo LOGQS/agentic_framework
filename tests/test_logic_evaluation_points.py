@@ -13,21 +13,21 @@ from agentic.events import StepCompleteEvent
 class TestLogicEvaluationPoints:
     """Tests for different evaluation points in logic conditions."""
 
-    def test_evaluation_point_llm_token_configuration(self):
-        """Test that llm_token evaluation point can be configured.
+    def test_evaluation_point_llm_chunk_configuration(self):
+        """Test that llm_chunk evaluation point can be configured.
 
-        evaluation_point="llm_token" allows conditions to be checked
-        on every LLM token as it streams.
+        evaluation_point="llm_chunk" allows conditions to be checked
+        on every LLM chunk as it streams.
         """
         condition = LogicCondition(
             pattern_set="default",
             pattern_name="STOP",
             match_type="regex",
             target="response",
-            evaluation_point="llm_token"
+            evaluation_point="llm_chunk"
         )
 
-        assert condition.evaluation_point == "llm_token"
+        assert condition.evaluation_point == "llm_chunk"
 
     def test_evaluation_point_tool_detected_configuration(self):
         """Test that tool_detected evaluation point can be configured.
@@ -168,7 +168,7 @@ class TestLogicEvaluationPoints:
             pattern_name="NEVER_MATCH_THIS_PATTERN",
             match_type="regex",
             target="response",
-            evaluation_point="llm_token"  # Evaluated during streaming
+            evaluation_point="llm_chunk"  # Evaluated during streaming
         )
 
         config = LogicConfig(
@@ -197,7 +197,7 @@ class TestLogicEvaluationPoints:
             pattern_name="STOP",
             match_type="regex",
             target="response",
-            evaluation_point="llm_token"
+            evaluation_point="llm_chunk"
         )
 
         complete_condition = LogicCondition(
@@ -209,7 +209,7 @@ class TestLogicEvaluationPoints:
         )
 
         # Verify both evaluation_points are set correctly
-        assert token_condition.evaluation_point == "llm_token"
+        assert token_condition.evaluation_point == "llm_chunk"
         assert complete_condition.evaluation_point == "step_complete"
 
         # Can be used together in config
@@ -220,5 +220,5 @@ class TestLogicEvaluationPoints:
         )
 
         assert len(config.stop_conditions) == 2
-        assert config.stop_conditions[0].evaluation_point == "llm_token"
+        assert config.stop_conditions[0].evaluation_point == "llm_chunk"
         assert config.stop_conditions[1].evaluation_point == "step_complete"

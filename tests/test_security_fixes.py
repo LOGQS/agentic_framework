@@ -36,14 +36,14 @@ class TestBufferOverflowProtection:
         # Create extractor with small buffer limit
         extractor = StreamingPatternExtractor(pattern_set, max_buffer_size=100)
 
-        # Feed tokens within limit - should work
-        events = list(extractor.feed_token("Hello "))
-        events = list(extractor.feed_token("world"))
+        # Feed chunks within limit - should work
+        events = list(extractor.feed_chunk("Hello "))
+        events = list(extractor.feed_chunk("world"))
 
         # Try to exceed buffer limit
-        large_token = "x" * 200
+        large_chunk = "x" * 200
         with pytest.raises(ValueError) as exc_info:
-            list(extractor.feed_token(large_token))
+            list(extractor.feed_chunk(large_chunk))
 
         assert "exceeded maximum size" in str(exc_info.value)
         assert "100 bytes" in str(exc_info.value)
@@ -86,12 +86,12 @@ class TestBufferOverflowProtection:
         extractor = StreamingPatternExtractor(pattern_set, max_buffer_size=50)
 
         # Start feeding a pattern
-        list(extractor.feed_token("<response>"))
-        list(extractor.feed_token("Some text"))
+        list(extractor.feed_chunk("<response>"))
+        list(extractor.feed_chunk("Some text"))
 
         # Try to add more that would exceed limit
         with pytest.raises(ValueError):
-            list(extractor.feed_token("x" * 100))
+            list(extractor.feed_chunk("x" * 100))
 
 
 class TestHistoryDefaultLimit:

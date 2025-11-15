@@ -3,7 +3,7 @@ Tests for event system.
 
 Covers:
 - BaseEvent and timestamp handling
-- LLMTokenEvent
+- LLMChunkEvent
 - LLMCompleteEvent
 - StatusEvent
 - ToolStartEvent, ToolOutputEvent, ToolEndEvent
@@ -16,7 +16,7 @@ import time
 
 from agentic.events import (
     BaseEvent,
-    LLMTokenEvent,
+    LLMChunkEvent,
     LLMCompleteEvent,
     StatusEvent,
     ToolStartEvent,
@@ -57,31 +57,31 @@ class TestBaseEvent:
         assert before <= event.timestamp <= after
 
 
-class TestLLMTokenEvent:
-    """Tests for LLMTokenEvent."""
+class TestLLMChunkEvent:
+    """Tests for LLMChunkEvent."""
 
-    def test_llm_token_event_creation(self):
-        """Test creating LLMTokenEvent."""
-        event = LLMTokenEvent(token="Hello")
-        assert event.token == "Hello"
-        assert event.type == "llm_token"
+    def test_llm_chunk_event_creation(self):
+        """Test creating LLMChunkEvent."""
+        event = LLMChunkEvent(chunk="Hello")
+        assert event.chunk == "Hello"
+        assert event.type == "llm_chunk"
         assert isinstance(event.timestamp, float)
 
-    def test_llm_token_event_with_timestamp(self):
-        """Test LLMTokenEvent with explicit timestamp."""
+    def test_llm_chunk_event_with_timestamp(self):
+        """Test LLMChunkEvent with explicit timestamp."""
         ts = 123456.0
-        event = LLMTokenEvent(token="test", timestamp=ts)
+        event = LLMChunkEvent(chunk="test", timestamp=ts)
         assert event.timestamp == ts
 
-    def test_llm_token_event_empty_token(self):
-        """Test LLMTokenEvent with empty token."""
-        event = LLMTokenEvent(token="")
-        assert event.token == ""
+    def test_llm_chunk_event_empty_chunk(self):
+        """Test LLMChunkEvent with empty chunk."""
+        event = LLMChunkEvent(chunk="")
+        assert event.chunk == ""
 
-    def test_llm_token_event_multichar(self):
-        """Test LLMTokenEvent with multi-character token."""
-        event = LLMTokenEvent(token="multiple words")
-        assert event.token == "multiple words"
+    def test_llm_chunk_event_multichar(self):
+        """Test LLMChunkEvent with multi-character chunk."""
+        event = LLMChunkEvent(chunk="multiple words")
+        assert event.chunk == "multiple words"
 
 
 class TestLLMCompleteEvent:
@@ -455,7 +455,7 @@ class TestEventTimestamps:
     def test_events_have_timestamps(self):
         """Test that all event types have timestamps."""
         events = [
-            LLMTokenEvent(token="test"),
+            LLMChunkEvent(chunk="test"),
             LLMCompleteEvent(full_text="test"),
             StatusEvent(status=AgentStatus.OK),
             ToolStartEvent("tool", {}, 0),
@@ -478,9 +478,9 @@ class TestEventTimestamps:
 
     def test_timestamp_precision(self):
         """Test that timestamps have subsecond precision."""
-        event1 = LLMTokenEvent(token="a")
+        event1 = LLMChunkEvent(chunk="a")
         time.sleep(0.001)
-        event2 = LLMTokenEvent(token="b")
+        event2 = LLMChunkEvent(chunk="b")
 
         assert event2.timestamp > event1.timestamp
 
@@ -488,7 +488,7 @@ class TestEventTimestamps:
         """Test that explicit timestamps are respected."""
         ts = 999999.123
         events = [
-            LLMTokenEvent(token="test", timestamp=ts),
+            LLMChunkEvent(chunk="test", timestamp=ts),
             LLMCompleteEvent(full_text="test", timestamp=ts),
             StatusEvent(status=AgentStatus.OK, timestamp=ts),
             ToolStartEvent("tool", {}, 0, timestamp=ts),
@@ -514,7 +514,7 @@ class TestEventTypes:
     def test_event_type_values(self):
         """Test that all events have correct type values."""
         type_mappings = [
-            (LLMTokenEvent(token="t"), "llm_token"),
+            (LLMChunkEvent(chunk="t"), "llm_chunk"),
             (LLMCompleteEvent(full_text="t"), "llm_complete"),
             (StatusEvent(status=AgentStatus.OK), "status"),
             (ToolStartEvent("t", {}, 0), "tool_start"),
@@ -568,8 +568,8 @@ class TestEventEdgeCases:
     def test_event_with_unicode(self):
         """Test events with unicode content."""
         unicode_text = "Hello \u4e16\u754c \u00e9\u00f1"
-        event = LLMTokenEvent(token=unicode_text)
-        assert event.token == unicode_text
+        event = LLMChunkEvent(chunk=unicode_text)
+        assert event.chunk == unicode_text
 
 
 class TestRetryEvent:
@@ -852,7 +852,7 @@ class TestAllEventTypes:
     def test_all_events_in_type_alias(self):
         """Verify all event classes are included in AgentEvent type alias."""
         from agentic.events import (
-            LLMTokenEvent, LLMCompleteEvent, StatusEvent,
+            LLMChunkEvent, LLMCompleteEvent, StatusEvent,
             ToolStartEvent, ToolDecisionEvent, ToolOutputEvent, ToolEndEvent, ToolValidationEvent,
             ContextWriteEvent, ErrorEvent,
             PatternStartEvent, PatternContentEvent, PatternEndEvent,
@@ -863,7 +863,7 @@ class TestAllEventTypes:
 
         # Create instances of all event types
         all_events = [
-            LLMTokenEvent("token"),
+            LLMChunkEvent("chunk"),
             LLMCompleteEvent("text"),
             StatusEvent(AgentStatus.OK),
             ToolStartEvent("tool", {}, 0),

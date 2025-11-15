@@ -534,10 +534,10 @@ class TestLLMProviderWithPromptType:
     async def test_mock_provider_stream_accepts_string(self):
         """Test MockLLMProvider.stream() accepts string prompt."""
         provider = MockLLMProvider(response="Test response", simulate_streaming=False)
-        tokens = []
-        async for token in provider.stream("String prompt"):
-            tokens.append(token)
-        assert "".join(tokens) == "Test response"
+        chunks = []
+        async for chunk in provider.stream("String prompt"):
+            chunks.append(chunk)
+        assert "".join(chunks) == "Test response"
 
     @pytest.mark.asyncio
     async def test_mock_provider_stream_accepts_prompt_object(self):
@@ -547,10 +547,10 @@ class TestLLMProviderWithPromptType:
             system="System",
             messages=[{"role": "user", "content": "Hi"}]
         )
-        tokens = []
-        async for token in provider.stream(prompt_obj):
-            tokens.append(token)
-        assert "".join(tokens) == "Test response"
+        chunks = []
+        async for chunk in provider.stream(prompt_obj):
+            chunks.append(chunk)
+        assert "".join(chunks) == "Test response"
 
     def test_agent_runner_with_string_prompt(self, agent, agent_runner, mock_llm_provider, context_manager):
         """Test AgentRunner.step() works with default string prompt."""

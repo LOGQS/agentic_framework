@@ -35,7 +35,7 @@ from .validation import (
 from .events import (
     BaseEvent,
     AgentEvent,
-    LLMTokenEvent,
+    LLMChunkEvent,
     LLMCompleteEvent,
     StatusEvent,
     ToolStartEvent,
@@ -159,7 +159,7 @@ __all__ = [
     # Events
     "BaseEvent",
     "AgentEvent",
-    "LLMTokenEvent",
+    "LLMChunkEvent",
     "LLMCompleteEvent",
     "StatusEvent",
     "ToolStartEvent",
