@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Logic Flows - Agentic Framework</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --primary: #3b82f6; --primary-glow: rgba(59, 130, 246, 0.3); --accent: #8b5cf6;
+            --bg-primary: #0a0a0a; --bg-secondary: #1a1a1a; --bg-tertiary: #2a2a2a;
+            --text-primary: #f8f9fa; --text-secondary: #a0a0a0; --text-muted: #6b7280;
+            --border: rgba(255, 255, 255, 0.1); --sidebar-width: 280px;
+            --shadow: 0 8px 32px rgba(0, 0, 0, 0.4); --shadow-lg: 0 20px 60px rgba(0, 0, 0, 0.6);
+        }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif; line-height: 1.7; color: var(--text-primary); background: var(--bg-primary); }
+        .container { display: flex; min-height: 100vh; }
+        .sidebar { width: var(--sidebar-width); background: var(--bg-secondary); border-right: 1px solid var(--border); position: fixed; height: 100vh; overflow-y: auto; padding: 2rem 0; }
+        .sidebar::-webkit-scrollbar { width: 6px; }
+        .sidebar::-webkit-scrollbar-thumb { background: var(--bg-tertiary); border-radius: 10px; }
+        .logo { padding: 0 1.5rem 1.5rem; font-size: 1.75rem; font-weight: 700; background: linear-gradient(135deg, var(--primary), var(--accent)); background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent; letter-spacing: -0.02em; margin-bottom: 1.5rem; }
+        .nav-section { margin-bottom: 2rem; }
+        .nav-section-title { padding: 0.5rem 1.5rem; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.1em; }
+        .nav-link { display: block; padding: 0.75rem 1.5rem; color: var(--text-secondary); text-decoration: none; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); font-size: 0.9rem; position: relative; }
+        .nav-link::before { content: ''; position: absolute; left: 0; top: 50%; transform: translateY(-50%); width: 3px; height: 0; background: linear-gradient(135deg, var(--primary), var(--accent)); border-radius: 0 3px 3px 0; transition: height 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+        .nav-link:hover { background: rgba(59, 130, 246, 0.1); color: var(--text-primary); }
+        .nav-link:hover::before { height: 60%; }
+        .nav-link.active { background: rgba(59, 130, 246, 0.15); color: var(--primary); font-weight: 500; }
+        .nav-link.active::before { height: 60%; }
+        .main-content { margin-left: var(--sidebar-width); flex: 1; padding: 4rem 4rem 4rem 5rem; max-width: 1000px; }
+        h1 { font-size: 3.5rem; margin-bottom: 1rem; font-weight: 700; letter-spacing: -0.03em; background: linear-gradient(135deg, var(--text-primary), var(--text-secondary)); background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        h2 { font-size: 2rem; margin-top: 3rem; margin-bottom: 1.25rem; font-weight: 600; letter-spacing: -0.02em; color: var(--text-primary); padding-bottom: 0.75rem; border-bottom: 1px solid var(--border); }
+        h3 { font-size: 1.5rem; margin-top: 2rem; margin-bottom: 1rem; font-weight: 600; letter-spacing: -0.01em; color: var(--text-primary); }
+        p { margin-bottom: 1.25rem; color: var(--text-secondary); font-size: 1.05rem; }
+        .subtitle { font-size: 1.3rem; color: var(--text-secondary); margin-bottom: 2.5rem; line-height: 1.6; }
+        code { background: var(--bg-tertiary); padding: 0.3rem 0.6rem; border-radius: 8px; font-family: 'SF Mono', 'Monaco', monospace; font-size: 0.9em; color: var(--primary); border: 1px solid var(--border); }
+        pre { background: var(--bg-secondary); color: var(--text-primary); padding: 2rem; border-radius: 16px; overflow-x: auto; margin: 2rem 0; line-height: 1.6; border: 1px solid var(--border); box-shadow: var(--shadow); }
+        pre code { background: none; color: inherit; padding: 0; border: none; font-size: 0.9rem; }
+        .keyword { color: #ff79c6; } .string { color: #50fa7b; } .function { color: #8be9fd; } .comment { color: var(--text-muted); }
+        ul, ol { margin: 1.5rem 0; padding-left: 2rem; }
+        li { margin: 0.75rem 0; color: var(--text-secondary); }
+        li strong, li code { color: var(--text-primary); }
+        a { color: var(--primary); text-decoration: none; transition: color 0.2s; }
+        a:hover { color: var(--accent); }
+        .alert { padding: 1.5rem; border-radius: 16px; margin: 2rem 0; background: rgba(59, 130, 246, 0.1); border-left: 4px solid var(--primary); }
+        .alert strong { color: var(--primary); }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <aside class="sidebar">
+            <div class="logo">Agentic</div>
+            <nav>
+                <div class="nav-section">
+                    <div class="nav-section-title">Getting Started</div>
+                    <a href="index.html" class="nav-link">Overview</a>
+                    <a href="getting-started.html" class="nav-link">Quick Start</a>
+                    <a href="core-concepts.html" class="nav-link">Core Concepts</a>
+                </div>
+                <div class="nav-section">
+                    <div class="nav-section-title">Core Systems</div>
+                    <a href="agent-system.html" class="nav-link">Agent System</a>
+                    <a href="tools.html" class="nav-link">Tools</a>
+                    <a href="patterns.html" class="nav-link">Patterns</a>
+                    <a href="logic-flows.html" class="nav-link active">Logic Flows</a>
+                </div>
+                <div class="nav-section">
+                    <div class="nav-section-title">Advanced</div>
+                    <a href="multi-agent.html" class="nav-link">Multi-Agent</a>
+                    <a href="events.html" class="nav-link">Events</a>
+                    <a href="resilience.html" class="nav-link">Resilience</a>
+                    <a href="validation.html" class="nav-link">Validation</a>
+                </div>
+                <div class="nav-section">
+                    <div class="nav-section-title">Reference</div>
+                    <a href="api-reference.html" class="nav-link">API Reference</a>
+                </div>
+            </nav>
+        </aside>
+
+        <main class="main-content">
+            <h1>Logic Flows</h1>
+            <p class="subtitle">Build conditional loops and multi-step agent execution</p>
+
+            <h2>Overview</h2>
+            <p>Logic flows enable agents to execute multiple steps based on conditions. Instead of single-shot execution, agents can loop, make decisions, and execute complex workflows.</p>
+
+            <h2>LogicRunner Class</h2>
+            <p>The core abstraction for conditional agent loops:</p>
+
+            <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> LogicRunner, LogicConfig, LogicCondition
+
+config = LogicConfig(
+    logic_id=<span class="string">"my_loop"</span>,
+    max_iterations=10,
+    stop_conditions=[...]  <span class="comment"># List of LogicCondition objects</span>
+)
+
+runner = LogicRunner(agent_runner, context, patterns, config)
+
+<span class="comment"># Execute until stop condition</span>
+<span class="keyword">async for</span> event <span class="keyword">in</span> runner.run_stream(initial_input):
+    <span class="keyword">if</span> event.type == <span class="string">"step_complete"</span>:
+        <span class="function">print</span>(<span class="string">f"Step {event.result.iteration} done"</span>)</code></pre>
+
+            <h2>Stop Conditions</h2>
+            <p>Define when the logic flow should terminate using LogicCondition:</p>
+
+            <h3>Pattern-Based Conditions</h3>
+            <p>Stop when a specific pattern is detected in the response:</p>
+            <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> LogicCondition
+
+<span class="comment"># Stop when "DONE" appears in response</span>
+stop_on_done = LogicCondition(
+    pattern_set=<span class="string">"default"</span>,
+    pattern_name=<span class="string">"response"</span>,
+    match_type=<span class="string">"contains"</span>,
+    target=<span class="string">"response"</span>
+)</code></pre>
+
+            <h3>Context-Based Conditions</h3>
+            <p>Stop based on context values:</p>
+            <pre><code><span class="comment"># Stop when context key matches value</span>
+stop_when_complete = LogicCondition(
+    pattern_set=<span class="string">"default"</span>,
+    pattern_name=<span class="string">"response"</span>,
+    match_type=<span class="string">"equals"</span>,
+    target=<span class="string">"context:task_complete"</span>
+)</code></pre>
+
+            <h3>Regex Conditions</h3>
+            <p>Stop when regex pattern matches:</p>
+            <pre><code><span class="comment"># Stop when confidence score > 95% appears in response</span>
+stop_on_high_confidence = LogicCondition(
+    pattern_set=<span class="string">"default"</span>,
+    pattern_name=<span class="string">"response"</span>,
+    match_type=<span class="string">"regex"</span>,
+    target=<span class="string">"response"</span>
+)</code></pre>
+
+            <h2>Helper Functions</h2>
+            <p>Use helper functions for common loop patterns:</p>
+
+            <h3>Loop N Times</h3>
+            <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> loop_n_times
+
+runner = loop_n_times(agent_runner, context, patterns, n=5)
+
+<span class="keyword">async for</span> event <span class="keyword">in</span> runner.run_stream(<span class="string">"Execute 5 iterations"</span>):
+    <span class="keyword">if</span> event.type == <span class="string">"step_complete"</span>:
+        result = event.result
+        <span class="function">print</span>(<span class="string">f"Iteration {result.iteration}: {result.status}"</span>)</code></pre>
+
+            <h3>Loop Until Pattern</h3>
+            <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> loop_until_pattern
+
+runner = loop_until_pattern(
+    agent_runner,
+    context,
+    patterns,
+    pattern_set=<span class="string">"default"</span>,
+    pattern_name=<span class="string">"response"</span>,
+    target=<span class="string">"response"</span>,
+    max_iterations=20
+)
+
+<span class="keyword">async for</span> event <span class="keyword">in</span> runner.run_stream(<span class="string">"Complete this multi-step task"</span>):
+    <span class="keyword">if</span> event.type == <span class="string">"step_complete"</span>:
+        <span class="function">print</span>(<span class="string">f"Step {event.result.iteration} done"</span>)</code></pre>
+
+            <h3>Loop Until Regex</h3>
+            <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> loop_until_regex
+
+runner = loop_until_regex(
+    agent_runner,
+    context,
+    patterns,
+    regex_pattern=<span class="string">r"confidence.*?(\d+)%"</span>,
+    target=<span class="string">"response"</span>,
+    max_iterations=10
+)
+
+<span class="keyword">async for</span> event <span class="keyword">in</span> runner.run_stream(<span class="string">"Refine until confident"</span>):
+    <span class="keyword">pass</span></code></pre>
+
+            <h3>Verification Loop</h3>
+            <p>Keep trying until verification succeeds:</p>
+            <pre><code>flow = LogicFlow(
+    runner=runner,
+    max_iterations=5,
+    stop_conditions=[
+        ToolResultStopCondition(
+            tool_name=<span class="string">"verify"</span>,
+            condition=<span class="keyword">lambda</span> r: r.success <span class="keyword">and</span> r.output.get(<span class="string">"valid"</span>) == <span class="keyword">True</span>
+        )
+    ]
+)
+
+<span class="keyword">async for</span> event <span class="keyword">in</span> flow.run(<span class="string">"Generate and verify solution"</span>):
+    <span class="keyword">pass</span>  <span class="comment"># Loops until verification passes</span></code></pre>
+
+            <h3>Incremental Refinement</h3>
+            <p>Refine output until quality threshold met:</p>
+            <pre><code><span class="keyword">class</span> <span class="function">QualityStopCondition</span>(StopCondition):
+    <span class="keyword">def</span> <span class="function">check</span>(<span class="keyword">self</span>, result, context):
+        quality = context.get_str(<span class="string">"quality_score"</span>)
+        <span class="keyword">return</span> quality <span class="keyword">and</span> <span class="function">float</span>(quality) >= 0.9
+
+flow = LogicFlow(
+    runner=runner,
+    max_iterations=10,
+    stop_conditions=[QualityStopCondition()],
+    loop_input_fn=<span class="keyword">lambda</span> prev_result: <span class="string">"Improve the previous output"</span>
+)</code></pre>
+
+            <h2>Loop Input Functions</h2>
+            <p>Customize input for each iteration:</p>
+
+            <pre><code><span class="keyword">def</span> <span class="function">build_loop_input</span>(previous_result: AgentStepResult) -> str:
+    <span class="comment"># Use previous output to guide next step</span>
+    <span class="keyword">if</span> previous_result.status == AgentStatus.TOOL_EXECUTED:
+        <span class="keyword">return</span> <span class="string">"Analyze the tool results and continue"</span>
+    <span class="keyword">else</span>:
+        <span class="keyword">return</span> <span class="string">"Continue with next step"</span>
+
+flow = LogicFlow(
+    runner=runner,
+    max_iterations=15,
+    stop_conditions=[StatusStopCondition(AgentStatus.DONE)],
+    loop_input_fn=build_loop_input
+)</code></pre>
+
+            <h2>Error Handling</h2>
+            <p>Handle errors gracefully in logic flows:</p>
+
+            <pre><code>flow = LogicFlow(
+    runner=runner,
+    max_iterations=10,
+    stop_conditions=[
+        StatusStopCondition(AgentStatus.DONE),
+        StatusStopCondition(AgentStatus.ERROR)  <span class="comment"># Stop on error</span>
+    ]
+)
+
+final_result = <span class="keyword">None</span>
+<span class="keyword">async for</span> event <span class="keyword">in</span> flow.run(user_input):
+    <span class="keyword">if</span> event.type == <span class="string">"step_complete"</span>:
+        final_result = event.result
+
+<span class="keyword">if</span> final_result.status == AgentStatus.ERROR:
+    <span class="function">print</span>(<span class="string">f"Flow failed: {final_result.error_message}"</span>)
+<span class="keyword">else</span>:
+    <span class="function">print</span>(<span class="string">f"Flow completed: {final_result.segments.response}"</span>)</code></pre>
+
+            <h2>Iteration Limits</h2>
+            <p>Always set <code>max_iterations</code> to prevent infinite loops:</p>
+
+            <pre><code>flow = LogicFlow(
+    runner=runner,
+    max_iterations=100,  <span class="comment"># Safety limit</span>
+    stop_conditions=[...]
+)
+
+<span class="comment"># Flow will stop at max_iterations even if conditions not met</span></code></pre>
+
+            <div class="alert">
+                <strong>Best Practice:</strong> Always include an error status stop condition to handle failures gracefully.
+            </div>
+
+            <h2>Context Monitoring</h2>
+            <p>Monitor context health during execution:</p>
+
+            <pre><code><span class="keyword">class</span> <span class="function">ContextHealthCondition</span>(StopCondition):
+    <span class="keyword">def</span> <span class="function">check</span>(<span class="keyword">self</span>, result, context):
+        <span class="comment"># Check if context is getting too large</span>
+        keys = context.list_keys()
+        <span class="keyword">if</span> <span class="function">len</span>(keys) > 1000:
+            <span class="keyword">return</span> <span class="keyword">True</span>  <span class="comment"># Stop if too many keys</span>
+
+        <span class="comment"># Check for specific markers</span>
+        shutdown_signal = context.get_str(<span class="string">"shutdown"</span>)
+        <span class="keyword">if</span> shutdown_signal == <span class="string">"true"</span>:
+            <span class="keyword">return</span> <span class="keyword">True</span>
+
+        <span class="keyword">return</span> <span class="keyword">False</span></code></pre>
+
+            <h2>Multi-Condition Logic</h2>
+            <p>Combine multiple stop conditions with OR logic:</p>
+
+            <pre><code>flow = LogicFlow(
+    runner=runner,
+    max_iterations=50,
+    stop_conditions=[
+        StatusStopCondition(AgentStatus.DONE),
+        StatusStopCondition(AgentStatus.ERROR),
+        ToolResultStopCondition(<span class="string">"verify"</span>, <span class="keyword">lambda</span> r: r.success),
+        ContextStopCondition(<span class="string">"abort"</span>, <span class="keyword">lambda</span> v: v == <span class="string">b"true"</span>)
+    ]
+)
+
+<span class="comment"># Stops when ANY condition is met</span></code></pre>
+
+            <h2>Real-World Example</h2>
+            <p>Research agent that iterates until comprehensive answer found:</p>
+
+            <pre><code><span class="keyword">class</span> <span class="function">ComprehensiveAnswerCondition</span>(StopCondition):
+    <span class="keyword">def</span> <span class="function">check</span>(<span class="keyword">self</span>, result, context):
+        response = result.segments.response
+        <span class="keyword">if</span> <span class="keyword">not</span> response:
+            <span class="keyword">return</span> <span class="keyword">False</span>
+
+        <span class="comment"># Check if response is comprehensive (simple heuristic)</span>
+        <span class="keyword">if</span> <span class="function">len</span>(response) < 200:
+            <span class="keyword">return</span> <span class="keyword">False</span>
+
+        <span class="comment"># Check if sources were cited</span>
+        <span class="keyword">if</span> <span class="string">"source"</span> <span class="keyword">not in</span> response.lower():
+            <span class="keyword">return</span> <span class="keyword">False</span>
+
+        <span class="keyword">return</span> <span class="keyword">True</span>
+
+<span class="keyword">def</span> <span class="function">research_loop_input</span>(prev_result):
+    <span class="keyword">if</span> prev_result <span class="keyword">is</span> <span class="keyword">None</span>:
+        <span class="keyword">return</span> <span class="keyword">None</span>  <span class="comment"># Use initial input</span>
+
+    <span class="comment"># Ask agent to expand on previous findings</span>
+    <span class="keyword">return</span> <span class="string">"Expand on previous findings with more detail and sources"</span>
+
+research_flow = LogicFlow(
+    runner=research_agent_runner,
+    max_iterations=5,
+    stop_conditions=[
+        ComprehensiveAnswerCondition(),
+        StatusStopCondition(AgentStatus.ERROR)
+    ],
+    loop_input_fn=research_loop_input
+)
+
+<span class="keyword">async for</span> event <span class="keyword">in</span> research_flow.run(<span class="string">"Research quantum computing applications"</span>):
+    <span class="keyword">if</span> event.type == <span class="string">"step_complete"</span>:
+        <span class="function">print</span>(<span class="string">f"Research iteration {event.result.iteration} complete"</span>)</code></pre>
+
+            <h2>Best Practices</h2>
+            <ul>
+                <li>Always set reasonable <code>max_iterations</code> limits</li>
+                <li>Include error status in stop conditions</li>
+                <li>Use context to communicate between iterations</li>
+                <li>Provide clear loop input to guide agent progress</li>
+                <li>Monitor iteration count and context size</li>
+                <li>Test stop conditions thoroughly to avoid infinite loops</li>
+                <li>Log iteration results for debugging</li>
+            </ul>
+
+            <h2>Next Steps</h2>
+            <ul>
+                <li><a href="agent-system.html">Agent System</a> - Configure agents for logic flows</li>
+                <li><a href="multi-agent.html">Multi-Agent</a> - Coordinate multiple agents</li>
+                <li><a href="events.html">Events</a> - Handle flow events</li>
+            </ul>
+        </main>
+    </div>
+</body>
+</html>

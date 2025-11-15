@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tools - Agentic Framework</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --primary: #3b82f6; --primary-glow: rgba(59, 130, 246, 0.3); --accent: #8b5cf6;
+            --bg-primary: #0a0a0a; --bg-secondary: #1a1a1a; --bg-tertiary: #2a2a2a;
+            --text-primary: #f8f9fa; --text-secondary: #a0a0a0; --text-muted: #6b7280;
+            --border: rgba(255, 255, 255, 0.1); --sidebar-width: 280px;
+            --shadow: 0 8px 32px rgba(0, 0, 0, 0.4); --shadow-lg: 0 20px 60px rgba(0, 0, 0, 0.6);
+        }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif; line-height: 1.7; color: var(--text-primary); background: var(--bg-primary); }
+        .container { display: flex; min-height: 100vh; }
+        .sidebar { width: var(--sidebar-width); background: var(--bg-secondary); border-right: 1px solid var(--border); position: fixed; height: 100vh; overflow-y: auto; padding: 2rem 0; }
+        .sidebar::-webkit-scrollbar { width: 6px; }
+        .sidebar::-webkit-scrollbar-thumb { background: var(--bg-tertiary); border-radius: 10px; }
+        .logo { padding: 0 1.5rem 1.5rem; font-size: 1.75rem; font-weight: 700; background: linear-gradient(135deg, var(--primary), var(--accent)); background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent; letter-spacing: -0.02em; margin-bottom: 1.5rem; }
+        .nav-section { margin-bottom: 2rem; }
+        .nav-section-title { padding: 0.5rem 1.5rem; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.1em; }
+        .nav-link { display: block; padding: 0.75rem 1.5rem; color: var(--text-secondary); text-decoration: none; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); font-size: 0.9rem; position: relative; }
+        .nav-link::before { content: ''; position: absolute; left: 0; top: 50%; transform: translateY(-50%); width: 3px; height: 0; background: linear-gradient(135deg, var(--primary), var(--accent)); border-radius: 0 3px 3px 0; transition: height 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+        .nav-link:hover { background: rgba(59, 130, 246, 0.1); color: var(--text-primary); }
+        .nav-link:hover::before { height: 60%; }
+        .nav-link.active { background: rgba(59, 130, 246, 0.15); color: var(--primary); font-weight: 500; }
+        .nav-link.active::before { height: 60%; }
+        .main-content { margin-left: var(--sidebar-width); flex: 1; padding: 4rem 4rem 4rem 5rem; max-width: 1000px; }
+        h1 { font-size: 3.5rem; margin-bottom: 1rem; font-weight: 700; letter-spacing: -0.03em; background: linear-gradient(135deg, var(--text-primary), var(--text-secondary)); background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        h2 { font-size: 2rem; margin-top: 3rem; margin-bottom: 1.25rem; font-weight: 600; letter-spacing: -0.02em; color: var(--text-primary); padding-bottom: 0.75rem; border-bottom: 1px solid var(--border); }
+        h3 { font-size: 1.5rem; margin-top: 2rem; margin-bottom: 1rem; font-weight: 600; letter-spacing: -0.01em; color: var(--text-primary); }
+        p { margin-bottom: 1.25rem; color: var(--text-secondary); font-size: 1.05rem; }
+        .subtitle { font-size: 1.3rem; color: var(--text-secondary); margin-bottom: 2.5rem; line-height: 1.6; }
+        code { background: var(--bg-tertiary); padding: 0.3rem 0.6rem; border-radius: 8px; font-family: 'SF Mono', 'Monaco', monospace; font-size: 0.9em; color: var(--primary); border: 1px solid var(--border); }
+        pre { background: var(--bg-secondary); color: var(--text-primary); padding: 2rem; border-radius: 16px; overflow-x: auto; margin: 2rem 0; line-height: 1.6; border: 1px solid var(--border); box-shadow: var(--shadow); }
+        pre code { background: none; color: inherit; padding: 0; border: none; font-size: 0.9rem; }
+        .keyword { color: #ff79c6; } .string { color: #50fa7b; } .function { color: #8be9fd; } .comment { color: var(--text-muted); }
+        ul, ol { margin: 1.5rem 0; padding-left: 2rem; }
+        li { margin: 0.75rem 0; color: var(--text-secondary); }
+        li strong, li code { color: var(--text-primary); }
+        a { color: var(--primary); text-decoration: none; transition: color 0.2s; }
+        a:hover { color: var(--accent); }
+        .alert { padding: 1.5rem; border-radius: 16px; margin: 2rem 0; background: rgba(59, 130, 246, 0.1); border-left: 4px solid var(--primary); }
+        .alert strong { color: var(--primary); }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <aside class="sidebar">
+            <div class="logo">Agentic</div>
+            <nav>
+                <div class="nav-section">
+                    <div class="nav-section-title">Getting Started</div>
+                    <a href="index.html" class="nav-link">Overview</a>
+                    <a href="getting-started.html" class="nav-link">Quick Start</a>
+                    <a href="core-concepts.html" class="nav-link">Core Concepts</a>
+                </div>
+                <div class="nav-section">
+                    <div class="nav-section-title">Core Systems</div>
+                    <a href="agent-system.html" class="nav-link">Agent System</a>
+                    <a href="tools.html" class="nav-link active">Tools</a>
+                    <a href="patterns.html" class="nav-link">Patterns</a>
+                    <a href="logic-flows.html" class="nav-link">Logic Flows</a>
+                </div>
+                <div class="nav-section">
+                    <div class="nav-section-title">Advanced</div>
+                    <a href="multi-agent.html" class="nav-link">Multi-Agent</a>
+                    <a href="events.html" class="nav-link">Events</a>
+                    <a href="resilience.html" class="nav-link">Resilience</a>
+                    <a href="validation.html" class="nav-link">Validation</a>
+                </div>
+                <div class="nav-section">
+                    <div class="nav-section-title">Reference</div>
+                    <a href="api-reference.html" class="nav-link">API Reference</a>
+                </div>
+            </nav>
+        </aside>
+
+        <main class="main-content">
+            <h1>Tools</h1>
+            <p class="subtitle">Creating, configuring, and executing agent tools</p>
+
+            <h2>Overview</h2>
+            <p>Tools are functions that agents can execute. Agentic provides a robust tool system with validation, timeout handling, multiple execution modes, and streaming support.</p>
+
+            <h2>Creating Tools</h2>
+
+            <h3>Simple Tool</h3>
+            <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> create_tool, ProcessingMode
+
+<span class="keyword">def</span> <span class="function">get_current_time</span>(args):
+    <span class="keyword">from</span> datetime <span class="keyword">import</span> datetime
+    <span class="keyword">return</span> {
+        <span class="string">"time"</span>: datetime.now().isoformat()
+    }
+
+time_tool = create_tool(
+    name=<span class="string">"get_time"</span>,
+    func=get_current_time,
+    description=<span class="string">"Get the current time"</span>
+)</code></pre>
+
+            <h3>Tool with Validation</h3>
+            <pre><code><span class="keyword">def</span> <span class="function">calculate</span>(args):
+    a = args[<span class="string">"a"</span>]
+    b = args[<span class="string">"b"</span>]
+    op = args.get(<span class="string">"operation"</span>, <span class="string">"add"</span>)
+
+    <span class="keyword">if</span> op == <span class="string">"add"</span>: <span class="keyword">return</span> {<span class="string">"result"</span>: a + b}
+    <span class="keyword">elif</span> op == <span class="string">"subtract"</span>: <span class="keyword">return</span> {<span class="string">"result"</span>: a - b}
+    <span class="keyword">elif</span> op == <span class="string">"multiply"</span>: <span class="keyword">return</span> {<span class="string">"result"</span>: a * b}
+    <span class="keyword">elif</span> op == <span class="string">"divide"</span>:
+        <span class="keyword">if</span> b == 0:
+            <span class="keyword">raise</span> <span class="function">ValueError</span>(<span class="string">"Cannot divide by zero"</span>)
+        <span class="keyword">return</span> {<span class="string">"result"</span>: a / b}
+
+calc_tool = create_tool(
+    name=<span class="string">"calculate"</span>,
+    func=calculate,
+    input_schema={
+        <span class="string">"validator"</span>: <span class="string">"simple"</span>,
+        <span class="string">"required"</span>: [<span class="string">"a"</span>, <span class="string">"b"</span>],
+        <span class="string">"fields"</span>: {
+            <span class="string">"a"</span>: {<span class="string">"type"</span>: <span class="string">"int"</span>},
+            <span class="string">"b"</span>: {<span class="string">"type"</span>: <span class="string">"int"</span>},
+            <span class="string">"operation"</span>: {
+                <span class="string">"type"</span>: <span class="string">"str"</span>,
+                <span class="string">"pattern"</span>: <span class="string">"^(add|subtract|multiply|divide)$"</span>
+            }
+        }
+    },
+    timeout_seconds=5.0
+)</code></pre>
+
+            <h2>Processing Modes</h2>
+            <p>Tools can execute in different modes depending on their characteristics:</p>
+
+            <h3>THREAD (Default)</h3>
+            <p>Best for I/O-bound operations (API calls, file I/O, database queries):</p>
+            <pre><code>tool = create_tool(
+    name=<span class="string">"fetch_data"</span>,
+    func=fetch_from_api,
+    processing_mode=ProcessingMode.THREAD
+)</code></pre>
+
+            <h3>PROCESS</h3>
+            <p>Best for CPU-bound operations (heavy computation, data processing):</p>
+            <pre><code>tool = create_tool(
+    name=<span class="string">"process_image"</span>,
+    func=expensive_computation,
+    processing_mode=ProcessingMode.PROCESS
+)</code></pre>
+
+            <h3>ASYNC</h3>
+            <p>For native async functions:</p>
+            <pre><code><span class="keyword">async def</span> <span class="function">fetch_async</span>(args):
+    <span class="keyword">async with</span> aiohttp.ClientSession() <span class="keyword">as</span> session:
+        <span class="keyword">async with</span> session.get(args[<span class="string">"url"</span>]) <span class="keyword">as</span> response:
+            <span class="keyword">return await</span> response.json()
+
+tool = create_tool(
+    name=<span class="string">"fetch"</span>,
+    func=fetch_async,
+    processing_mode=ProcessingMode.ASYNC
+)</code></pre>
+
+            <h2>Streaming Tools</h2>
+            <p>Tools can support streaming outputs for long-running operations:</p>
+
+            <pre><code><span class="keyword">class</span> <span class="function">StreamingTool</span>:
+    <span class="keyword">async def</span> <span class="function">run_stream</span>(<span class="keyword">self</span>, inputs):
+        <span class="comment"># Yield progressive outputs</span>
+        <span class="keyword">for</span> i <span class="keyword">in</span> <span class="function">range</span>(10):
+            <span class="keyword">await</span> asyncio.sleep(0.5)
+            <span class="keyword">yield</span> {<span class="string">"progress"</span>: i * 10, <span class="string">"status"</span>: <span class="string">"processing"</span>}
+
+        <span class="keyword">yield</span> {<span class="string">"progress"</span>: 100, <span class="string">"status"</span>: <span class="string">"complete"</span>}
+
+tool = Tool(
+    definition=ToolDefinition(
+        name=<span class="string">"long_task"</span>,
+        input_schema={},
+        output_schema={}
+    ),
+    callable_func=StreamingTool()
+)</code></pre>
+
+            <h2>Tool Registry</h2>
+            <p>Manage available tools through the registry:</p>
+
+            <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> ToolRegistry
+
+tools = ToolRegistry()
+
+<span class="comment"># Register tools</span>
+tools.register(time_tool)
+tools.register(calc_tool)
+
+<span class="comment"># Check if tool exists</span>
+<span class="keyword">if</span> tools.exists(<span class="string">"calculate"</span>):
+    <span class="function">print</span>(<span class="string">"Calculator available"</span>)
+
+<span class="comment"># List all tools</span>
+all_tools = tools.list()
+
+<span class="comment"># Get tool definitions (for LLM prompts)</span>
+definitions = tools.get_definitions()</code></pre>
+
+            <h2>Tool Validation</h2>
+            <p>Use the validation system to ensure tool arguments are correct:</p>
+
+            <h3>Simple Validator</h3>
+            <pre><code>input_schema = {
+    <span class="string">"validator"</span>: <span class="string">"simple"</span>,
+    <span class="string">"required"</span>: [<span class="string">"url"</span>, <span class="string">"method"</span>],
+    <span class="string">"fields"</span>: {
+        <span class="string">"url"</span>: {
+            <span class="string">"type"</span>: <span class="string">"str"</span>,
+            <span class="string">"pattern"</span>: <span class="string">"^https?://"</span>,
+            <span class="string">"max_length"</span>: 2048
+        },
+        <span class="string">"method"</span>: {
+            <span class="string">"type"</span>: <span class="string">"str"</span>,
+            <span class="string">"pattern"</span>: <span class="string">"^(GET|POST|PUT|DELETE)$"</span>
+        },
+        <span class="string">"timeout"</span>: {
+            <span class="string">"type"</span>: <span class="string">"int"</span>,
+            <span class="string">"min"</span>: 1,
+            <span class="string">"max"</span>: 300
+        }
+    }
+}</code></pre>
+
+            <h3>Custom Validator Function</h3>
+            <pre><code>input_schema = {
+    <span class="string">"validator"</span>: <span class="string">"simple"</span>,
+    <span class="string">"fields"</span>: {
+        <span class="string">"email"</span>: {
+            <span class="string">"type"</span>: <span class="string">"str"</span>,
+            <span class="string">"validator_func"</span>: <span class="keyword">lambda</span> v: <span class="string">"@"</span> <span class="keyword">in</span> v <span class="keyword">and</span> <span class="string">"."</span> <span class="keyword">in</span> v
+        }
+    }
+}</code></pre>
+
+            <h2>Timeout Handling</h2>
+            <p>Tools automatically timeout after the specified duration:</p>
+
+            <pre><code>tool = create_tool(
+    name=<span class="string">"slow_operation"</span>,
+    func=slow_func,
+    timeout_seconds=30.0  <span class="comment"># Timeout after 30 seconds</span>
+)
+
+<span class="comment"># Tool result will have success=False and error_message if timeout</span>
+result = tool.run(args, iteration=1)
+<span class="keyword">if</span> <span class="keyword">not</span> result.success:
+    <span class="function">print</span>(<span class="string">f"Tool failed: {result.error_message}"</span>)</code></pre>
+
+            <h2>Tool Name Mapping</h2>
+            <p>Map public tool names (that LLMs see) to internal registry names:</p>
+
+            <pre><code><span class="comment"># Register tool with internal name</span>
+tools.register(create_tool(
+    name=<span class="string">"internal_search_v2"</span>,
+    func=search_func
+))
+
+<span class="comment"># Map public name to internal name</span>
+config = AgentConfig(
+    agent_id=<span class="string">"my_agent"</span>,
+    tools_allowed=[<span class="string">"internal_search_v2"</span>],
+    tool_name_mapping={
+        <span class="string">"search"</span>: <span class="string">"internal_search_v2"</span>  <span class="comment"># LLM uses "search"</span>
+    }
+)
+
+<span class="comment"># LLM output: &lt;tool&gt;{"name": "search", ...}&lt;/tool&gt;</span>
+<span class="comment"># Framework executes: internal_search_v2</span></code></pre>
+
+            <h2>Concurrent Tool Execution</h2>
+            <p>Execute tools concurrently as they're detected during LLM streaming:</p>
+
+            <pre><code>config = AgentConfig(
+    agent_id=<span class="string">"fast_agent"</span>,
+    tools_allowed=[<span class="string">"search"</span>, <span class="string">"calculate"</span>],
+    concurrent_tool_execution=<span class="keyword">True</span>  <span class="comment"># Execute immediately</span>
+)
+
+<span class="comment"># Tools execute as soon as their &lt;/tool&gt; tag is detected</span>
+<span class="comment"># Don't wait for LLM completion</span></code></pre>
+
+            <div class="alert">
+                <strong>Warning:</strong> Concurrent execution can lead to race conditions if tools modify shared state. Use with caution.
+            </div>
+
+            <h2>Tool Results</h2>
+            <p>Tool execution returns a <code>ToolResult</code> object:</p>
+
+            <pre><code>result = tool.run(args, iteration=1)
+
+result.name             <span class="comment"># Tool name</span>
+result.output           <span class="comment"># Return value (dict, str, bytes, list)</span>
+result.success          <span class="comment"># True if successful</span>
+result.error_message    <span class="comment"># Error message if failed</span>
+result.execution_time   <span class="comment"># Execution time in seconds</span>
+result.iteration        <span class="comment"># Iteration when executed</span>
+result.call_id          <span class="comment"># Unique call identifier</span></code></pre>
+
+            <h2>Best Practices</h2>
+            <ul>
+                <li>Always provide clear descriptions for tools to guide LLM usage</li>
+                <li>Use validation schemas to catch invalid arguments early</li>
+                <li>Set appropriate timeouts to prevent hanging operations</li>
+                <li>Choose the right processing mode for your tool's workload</li>
+                <li>Return structured data (dicts) when possible for better parsing</li>
+                <li>Handle errors gracefully and return meaningful error messages</li>
+                <li>Use streaming for long-running operations to provide progress feedback</li>
+            </ul>
+
+            <h2>Next Steps</h2>
+            <ul>
+                <li><a href="validation.html">Validation</a> - Deep dive into validation schemas</li>
+                <li><a href="patterns.html">Patterns</a> - How tools are extracted from output</li>
+                <li><a href="agent-system.html">Agent System</a> - Configuring tool access</li>
+            </ul>
+        </main>
+    </div>
+</body>
+</html>

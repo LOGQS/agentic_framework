@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Reference - Agentic Framework</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --primary: #3b82f6; --primary-glow: rgba(59, 130, 246, 0.3); --accent: #8b5cf6;
+            --bg-primary: #0a0a0a; --bg-secondary: #1a1a1a; --bg-tertiary: #2a2a2a;
+            --text-primary: #f8f9fa; --text-secondary: #a0a0a0; --text-muted: #6b7280;
+            --border: rgba(255, 255, 255, 0.1); --sidebar-width: 280px;
+            --shadow: 0 8px 32px rgba(0, 0, 0, 0.4); --shadow-lg: 0 20px 60px rgba(0, 0, 0, 0.6);
+        }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif; line-height: 1.7; color: var(--text-primary); background: var(--bg-primary); }
+        .container { display: flex; min-height: 100vh; }
+        .sidebar { width: var(--sidebar-width); background: var(--bg-secondary); border-right: 1px solid var(--border); position: fixed; height: 100vh; overflow-y: auto; padding: 2rem 0; }
+        .sidebar::-webkit-scrollbar { width: 6px; }
+        .sidebar::-webkit-scrollbar-thumb { background: var(--bg-tertiary); border-radius: 10px; }
+        .logo { padding: 0 1.5rem 1.5rem; font-size: 1.75rem; font-weight: 700; background: linear-gradient(135deg, var(--primary), var(--accent)); background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent; letter-spacing: -0.02em; margin-bottom: 1.5rem; }
+        .nav-section { margin-bottom: 2rem; }
+        .nav-section-title { padding: 0.5rem 1.5rem; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.1em; }
+        .nav-link { display: block; padding: 0.75rem 1.5rem; color: var(--text-secondary); text-decoration: none; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); font-size: 0.9rem; position: relative; }
+        .nav-link::before { content: ''; position: absolute; left: 0; top: 50%; transform: translateY(-50%); width: 3px; height: 0; background: linear-gradient(135deg, var(--primary), var(--accent)); border-radius: 0 3px 3px 0; transition: height 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+        .nav-link:hover { background: rgba(59, 130, 246, 0.1); color: var(--text-primary); }
+        .nav-link:hover::before { height: 60%; }
+        .nav-link.active { background: rgba(59, 130, 246, 0.15); color: var(--primary); font-weight: 500; }
+        .nav-link.active::before { height: 60%; }
+        .main-content { margin-left: var(--sidebar-width); flex: 1; padding: 4rem 4rem 4rem 5rem; max-width: 1000px; }
+        h1 { font-size: 3.5rem; margin-bottom: 1rem; font-weight: 700; letter-spacing: -0.03em; background: linear-gradient(135deg, var(--text-primary), var(--text-secondary)); background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        h2 { font-size: 2rem; margin-top: 3rem; margin-bottom: 1.25rem; font-weight: 600; letter-spacing: -0.02em; color: var(--text-primary); padding-bottom: 0.75rem; border-bottom: 1px solid var(--border); }
+        h3 { font-size: 1.5rem; margin-top: 2rem; margin-bottom: 1rem; font-weight: 600; letter-spacing: -0.01em; color: var(--text-primary); }
+        h4 { font-size: 1.2rem; margin-top: 1.5rem; margin-bottom: 0.75rem; font-weight: 600; color: var(--primary); }
+        p { margin-bottom: 1.25rem; color: var(--text-secondary); font-size: 1.05rem; }
+        .subtitle { font-size: 1.3rem; color: var(--text-secondary); margin-bottom: 2.5rem; line-height: 1.6; }
+        code { background: var(--bg-tertiary); padding: 0.3rem 0.6rem; border-radius: 8px; font-family: 'SF Mono', 'Monaco', monospace; font-size: 0.9em; color: var(--primary); border: 1px solid var(--border); }
+        pre { background: var(--bg-secondary); color: var(--text-primary); padding: 2rem; border-radius: 16px; overflow-x: auto; margin: 2rem 0; line-height: 1.6; border: 1px solid var(--border); box-shadow: var(--shadow); }
+        pre code { background: none; color: inherit; padding: 0; border: none; font-size: 0.9rem; }
+        .keyword { color: #ff79c6; } .string { color: #50fa7b; } .function { color: #8be9fd; } .comment { color: var(--text-muted); }
+        ul, ol { margin: 1.5rem 0; padding-left: 2rem; }
+        li { margin: 0.75rem 0; color: var(--text-secondary); }
+        li strong, li code { color: var(--text-primary); }
+        a { color: var(--primary); text-decoration: none; transition: color 0.2s; }
+        a:hover { color: var(--accent); }
+        .alert { padding: 1.5rem; border-radius: 16px; margin: 2rem 0; background: rgba(59, 130, 246, 0.1); border-left: 4px solid var(--primary); }
+        .alert strong { color: var(--primary); }
+        table { width: 100%; border-collapse: collapse; margin: 2rem 0; background: var(--bg-secondary); border-radius: 12px; overflow: hidden; }
+        th { background: var(--bg-tertiary); color: var(--text-primary); font-weight: 600; padding: 1rem; text-align: left; font-size: 0.9rem; }
+        td { padding: 1rem; border-top: 1px solid var(--border); color: var(--text-secondary); font-size: 0.9rem; }
+        td code { font-size: 0.85em; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <aside class="sidebar">
+            <div class="logo">Agentic</div>
+            <nav>
+                <div class="nav-section">
+                    <div class="nav-section-title">Getting Started</div>
+                    <a href="index.html" class="nav-link">Overview</a>
+                    <a href="getting-started.html" class="nav-link">Quick Start</a>
+                    <a href="core-concepts.html" class="nav-link">Core Concepts</a>
+                </div>
+                <div class="nav-section">
+                    <div class="nav-section-title">Core Systems</div>
+                    <a href="agent-system.html" class="nav-link">Agent System</a>
+                    <a href="tools.html" class="nav-link">Tools</a>
+                    <a href="patterns.html" class="nav-link">Patterns</a>
+                    <a href="logic-flows.html" class="nav-link">Logic Flows</a>
+                </div>
+                <div class="nav-section">
+                    <div class="nav-section-title">Advanced</div>
+                    <a href="multi-agent.html" class="nav-link">Multi-Agent</a>
+                    <a href="events.html" class="nav-link">Events</a>
+                    <a href="resilience.html" class="nav-link">Resilience</a>
+                    <a href="validation.html" class="nav-link">Validation</a>
+                </div>
+                <div class="nav-section">
+                    <div class="nav-section-title">Reference</div>
+                    <a href="api-reference.html" class="nav-link active">API Reference</a>
+                </div>
+            </nav>
+        </aside>
+
+        <main class="main-content">
+            <h1>API Reference</h1>
+            <p class="subtitle">Complete reference for all classes, functions, and types in the Agentic Framework</p>
+
+            <div class="alert">
+                <strong>Complete Coverage:</strong> This reference documents all public APIs. For usage examples and patterns, see the topic-specific documentation pages.
+            </div>
+
+            <h2>Core Module</h2>
+            <p>Core agent execution engine and configuration.</p>
+
+            <h3>Agent</h3>
+            <p>Main agent class combining all components.</p>
+            <pre><code><span class="keyword">class</span> <span class="function">Agent</span>:
+    <span class="keyword">def</span> <span class="function">__init__</span>(
+        config: AgentConfig,
+        context: ContextManager,
+        patterns: PatternRegistry,
+        tools: ToolRegistry,
+        provider: LLMProvider
+    )</code></pre>
+
+            <h3>AgentRunner</h3>
+            <p>Executes agent steps with event streaming.</p>
+            <pre><code><span class="comment"># Synchronous execution</span>
+result = runner.step(user_input, processing_mode=ProcessingMode.THREAD)
+
+<span class="comment"># Streaming execution</span>
+<span class="keyword">async for</span> event <span class="keyword">in</span> runner.step_stream(user_input):
+    <span class="keyword">if</span> <span class="function">isinstance</span>(event, StepCompleteEvent):
+        result = event.result</code></pre>
+
+            <h3>AgentConfig</h3>
+            <p>Configuration object for agent behavior.</p>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Field</th>
+                        <th>Type</th>
+                        <th>Default</th>
+                        <th>Description</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>agent_id</code></td>
+                        <td>str</td>
+                        <td>required</td>
+                        <td>Unique identifier</td>
+                    </tr>
+                    <tr>
+                        <td><code>tools_allowed</code></td>
+                        <td>list[str]</td>
+                        <td>[]</td>
+                        <td>Allowed tool names</td>
+                    </tr>
+                    <tr>
+                        <td><code>pattern_set</code></td>
+                        <td>str</td>
+                        <td>"default"</td>
+                        <td>Pattern set to use</td>
+                    </tr>
+                    <tr>
+                        <td><code>system_prompt</code></td>
+                        <td>str</td>
+                        <td>""</td>
+                        <td>System prompt</td>
+                    </tr>
+                    <tr>
+                        <td><code>concurrent_tool_execution</code></td>
+                        <td>bool</td>
+                        <td>False</td>
+                        <td>Execute tools concurrently</td>
+                    </tr>
+                    <tr>
+                        <td><code>verify_tool_calls</code></td>
+                        <td>bool</td>
+                        <td>False</td>
+                        <td>Enable tool verification</td>
+                    </tr>
+                    <tr>
+                        <td><code>input_mapping</code></td>
+                        <td>dict[str, str]</td>
+                        <td>{}</td>
+                        <td>Context key mappings</td>
+                    </tr>
+                    <tr>
+                        <td><code>output_mapping</code></td>
+                        <td>dict[str, str]</td>
+                        <td>{}</td>
+                        <td>Output storage mappings</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3>AgentStatus</h3>
+            <p>Execution status enumeration.</p>
+            <ul>
+                <li><code>OK</code> - Normal execution</li>
+                <li><code>DONE</code> - Completed successfully</li>
+                <li><code>ERROR</code> - Error occurred</li>
+            </ul>
+
+            <h3>AgentStepResult</h3>
+            <p>Result from a single agent step.</p>
+            <pre><code>result.status           <span class="comment"># AgentStatus</span>
+result.raw_output       <span class="comment"># Complete LLM output</span>
+result.segments         <span class="comment"># ExtractedSegments</span>
+result.tool_results     <span class="comment"># list[ToolResult]</span>
+result.iteration        <span class="comment"># int</span></code></pre>
+
+            <h3>ExtractedSegments</h3>
+            <p>Structured segments from LLM output.</p>
+            <pre><code>segments.tools          <span class="comment"># list[ToolCall]</span>
+segments.reasoning      <span class="comment"># list[str]</span>
+segments.response       <span class="comment"># str</span></code></pre>
+
+            <h2>Context Module</h2>
+            <p>Versioned key-value storage with iteration tracking.</p>
+
+            <h3>ContextManager</h3>
+            <p>Manages versioned context state.</p>
+            <pre><code><span class="comment"># Set value (creates new version)</span>
+context.set(<span class="string">"key"</span>, <span class="string">"value"</span>)
+
+<span class="comment"># Get as UTF-8 string (most common)</span>
+value = context.get(<span class="string">"key"</span>)
+
+<span class="comment"># Get binary data</span>
+binary = context.get_bytes(<span class="string">"key"</span>)
+
+<span class="comment"># Get with metadata</span>
+record = context.get_record(<span class="string">"key"</span>)
+
+<span class="comment"># Get history</span>
+history = context.get_history(<span class="string">"key"</span>, max_versions=10)
+
+<span class="comment"># List keys with prefix</span>
+keys = context.list_keys(prefix=<span class="string">"tool:"</span>)</code></pre>
+
+            <h3>ContextRecord</h3>
+            <p>Versioned context entry with metadata.</p>
+            <pre><code>record.value         <span class="comment"># bytes</span>
+record.version       <span class="comment"># int</span>
+record.iteration     <span class="comment"># int</span>
+record.timestamp     <span class="comment"># float</span></code></pre>
+
+            <h3>IterationManager</h3>
+            <p>Manages global iteration counter.</p>
+            <pre><code>iteration_mgr.get()                    <span class="comment"># Get current</span>
+iteration_mgr.next()                   <span class="comment"># Increment and return</span>
+iteration_mgr.register_event(<span class="string">"name"</span>)   <span class="comment"># Log event</span></code></pre>
+
+            <h2>Tools Module</h2>
+            <p>Tool creation, registration, and execution.</p>
+
+            <h3>create_tool</h3>
+            <p>Create a tool from a function.</p>
+            <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> create_tool, ProcessingMode
+
+<span class="keyword">def</span> <span class="function">my_tool</span>(args):
+    <span class="keyword">return</span> {<span class="string">"result"</span>: args[<span class="string">"input"</span>]}
+
+tool = create_tool(
+    name=<span class="string">"my_tool"</span>,
+    func=my_tool,
+    description=<span class="string">"Tool description"</span>,
+    input_schema={<span class="string">"validator"</span>: <span class="string">"simple"</span>, ...},
+    timeout_seconds=10.0,
+    processing_mode=ProcessingMode.THREAD
+)</code></pre>
+
+            <h3>ProcessingMode</h3>
+            <p>Tool execution modes.</p>
+            <ul>
+                <li><code>THREAD</code> - Thread pool (I/O-bound)</li>
+                <li><code>PROCESS</code> - Process pool (CPU-bound)</li>
+                <li><code>ASYNC</code> - Async coroutine</li>
+            </ul>
+
+            <h3>ToolRegistry</h3>
+            <p>Global tool registration and management.</p>
+            <pre><code>tools = ToolRegistry()
+tools.register(tool)
+tools.exists(<span class="string">"tool_name"</span>)
+all_tools = tools.list()
+definitions = tools.get_definitions()</code></pre>
+
+            <h3>ToolResult</h3>
+            <p>Tool execution result.</p>
+            <pre><code>result.name              <span class="comment"># str</span>
+result.output            <span class="comment"># Any</span>
+result.success           <span class="comment"># bool</span>
+result.error_message     <span class="comment"># str | None</span>
+result.execution_time    <span class="comment"># float</span>
+result.iteration         <span class="comment"># int</span>
+result.call_id           <span class="comment"># str</span></code></pre>
+
+            <h2>Patterns Module</h2>
+            <p>Pattern extraction system for structured output.</p>
+
+            <h3>PatternRegistry</h3>
+            <p>Manages pattern sets.</p>
+            <pre><code>patterns = PatternRegistry(storage)
+patterns.register_pattern_set(pattern_set)
+pattern_set = patterns.get_pattern_set(<span class="string">"default"</span>)</code></pre>
+
+            <h3>PatternSet</h3>
+            <p>Collection of patterns.</p>
+            <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> PatternSet, Pattern, SegmentType
+
+custom_set = PatternSet(
+    name=<span class="string">"custom"</span>,
+    patterns=[
+        Pattern(
+            name=<span class="string">"tool"</span>,
+            start_tag=<span class="string">"&lt;tool&gt;"</span>,
+            end_tag=<span class="string">"&lt;/tool&gt;"</span>,
+            segment_type=SegmentType.TOOL,
+            expected_format=<span class="string">"json"</span>
+        )
+    ]
+)</code></pre>
+
+            <h3>Built-in Pattern Sets</h3>
+            <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> (
+    create_default_pattern_set,
+    create_xml_tools_pattern_set,
+    create_json_tools_pattern_set,
+    create_backtick_tools_pattern_set
+)</code></pre>
+
+            <h2>Logic Module</h2>
+            <p>Conditional execution and logic flows.</p>
+
+            <h3>LogicRunner</h3>
+            <p>Manages iterative agent execution with conditions.</p>
+            <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> LogicRunner, LogicConfig, LogicCondition
+
+config = LogicConfig(
+    logic_id=<span class="string">"my_flow"</span>,
+    max_iterations=10,
+    stop_conditions=[
+        LogicCondition(
+            pattern_set=<span class="string">"default"</span>,
+            pattern_name=<span class="string">"done"</span>,
+            match_type=<span class="string">"contains"</span>,
+            target=<span class="string">"response"</span>
+        )
+    ]
+)
+
+runner = LogicRunner(agent_runner, context, patterns, config)
+results = runner.run(initial_input)</code></pre>
+
+            <h3>Helper Functions</h3>
+            <pre><code>loop_n_times(runner, context, patterns, n=5)
+loop_until_pattern(runner, context, patterns, <span class="string">"default"</span>, <span class="string">"done"</span>)
+loop_until_regex(runner, context, patterns, <span class="string">r"COMPLETE"</span>)
+stop_on_error(runner, context, patterns)</code></pre>
+
+            <h2>Multi-Agent Module</h2>
+            <p>Multi-agent coordination patterns.</p>
+
+            <h3>AgentChain</h3>
+            <p>Sequential agent execution.</p>
+            <pre><code>chain = AgentChain(
+    agents=[(<span class="string">"agent1"</span>, agent1), (<span class="string">"agent2"</span>, agent2)],
+    config=AgentChainConfig()
+)
+
+<span class="keyword">async for</span> event <span class="keyword">in</span> chain.execute(<span class="string">"initial input"</span>):
+    <span class="keyword">pass</span></code></pre>
+
+            <h3>SupervisorPattern</h3>
+            <p>Supervisor delegates to workers.</p>
+            <pre><code>supervisor = SupervisorPattern(
+    supervisor=supervisor_agent,
+    workers={<span class="string">"worker1"</span>: agent1, <span class="string">"worker2"</span>: agent2}
+)
+
+<span class="keyword">async for</span> event <span class="keyword">in</span> supervisor.execute(<span class="string">"task"</span>):
+    <span class="keyword">pass</span></code></pre>
+
+            <h3>ParallelPattern</h3>
+            <p>Parallel agent execution with merging.</p>
+            <pre><code>parallel = ParallelPattern(
+    agents={<span class="string">"agent1"</span>: agent1, <span class="string">"agent2"</span>: agent2},
+    merger=merger_agent,
+    config=ParallelConfig(merge_strategy=<span class="string">"agent"</span>)
+)
+
+<span class="keyword">async for</span> event <span class="keyword">in</span> parallel.execute_and_merge(<span class="string">"query"</span>):
+    <span class="keyword">pass</span></code></pre>
+
+            <h3>DebatePattern</h3>
+            <p>Multi-round agent debate.</p>
+            <pre><code>debate = DebatePattern(
+    agents={<span class="string">"agent1"</span>: agent1, <span class="string">"agent2"</span>: agent2},
+    moderator=moderator_agent
+)
+
+<span class="keyword">async for</span> event <span class="keyword">in</span> debate.converge(<span class="string">"topic"</span>):
+    <span class="keyword">pass</span></code></pre>
+
+            <h2>Events Module</h2>
+            <p>Event system for streaming agent execution.</p>
+
+            <h3>Event Types</h3>
+            <ul>
+                <li><code>LLMChunkEvent</code> - LLM chunk</li>
+                <li><code>LLMCompleteEvent</code> - LLM complete</li>
+                <li><code>StatusEvent</code> - Status change</li>
+                <li><code>ToolStartEvent</code> - Tool starts</li>
+                <li><code>ToolDecisionEvent</code> - Tool verification decision</li>
+                <li><code>ToolOutputEvent</code> - Tool output (may be partial)</li>
+                <li><code>ToolEndEvent</code> - Tool complete</li>
+                <li><code>ToolValidationEvent</code> - Validation errors</li>
+                <li><code>PatternStartEvent</code> - Pattern opening detected</li>
+                <li><code>PatternContentEvent</code> - Pattern content (streaming)</li>
+                <li><code>PatternEndEvent</code> - Pattern complete</li>
+                <li><code>ContextWriteEvent</code> - Context updated</li>
+                <li><code>ContextHealthEvent</code> - Context health check</li>
+                <li><code>ErrorEvent</code> - Error occurred</li>
+                <li><code>StepCompleteEvent</code> - Step complete</li>
+                <li><code>RetryEvent</code> - Retry occurring</li>
+                <li><code>RateLimitEvent</code> - Rate limit acquired</li>
+            </ul>
+
+            <h2>Resilience Module</h2>
+            <p>Retry logic and rate limiting.</p>
+
+            <h3>with_retry</h3>
+            <p>Wrap any async function with retry logic.</p>
+            <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> with_retry, RetryConfig
+
+resilient_func = with_retry(
+    my_async_func,
+    RetryConfig(
+        max_attempts=3,
+        initial_delay=1.0,
+        max_delay=60.0,
+        exponential_base=2.0,
+        jitter=<span class="keyword">True</span>,
+        retryable_exceptions=(TimeoutError, ConnectionError)
+    )
+)</code></pre>
+
+            <h3>RateLimiter</h3>
+            <p>Token bucket rate limiter.</p>
+            <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> RateLimiter
+
+limiter = RateLimiter(rate=10.0, capacity=10.0)
+
+<span class="keyword">await</span> limiter.acquire()  <span class="comment"># Blocks until token available</span>
+<span class="keyword">await</span> call_api()</code></pre>
+
+            <h2>Validation Module</h2>
+            <p>Format-agnostic validation system.</p>
+
+            <h3>ValidatorRegistry</h3>
+            <p>Manages validators.</p>
+            <pre><code>registry = ValidatorRegistry()
+is_valid, errors = registry.validate(data, schema)</code></pre>
+
+            <h3>simple_validator</h3>
+            <p>Built-in lightweight validator.</p>
+            <pre><code>schema = {
+    <span class="string">"validator"</span>: <span class="string">"simple"</span>,
+    <span class="string">"required"</span>: [<span class="string">"field1"</span>],
+    <span class="string">"fields"</span>: {
+        <span class="string">"field1"</span>: {
+            <span class="string">"type"</span>: <span class="string">"str"</span>,
+            <span class="string">"min_length"</span>: 1,
+            <span class="string">"max_length"</span>: 100,
+            <span class="string">"pattern"</span>: <span class="string">r"^[a-z]+$"</span>
+        },
+        <span class="string">"field2"</span>: {
+            <span class="string">"type"</span>: <span class="string">"int"</span>,
+            <span class="string">"min"</span>: 0,
+            <span class="string">"max"</span>: 100
+        }
+    }
+}</code></pre>
+
+            <h3>passthrough_validator</h3>
+            <p>Validator that skips all validation checks.</p>
+            <pre><code>schema = {
+    <span class="string">"validator"</span>: <span class="string">"passthrough"</span>
+}
+<span class="comment"># Always returns (True, []) regardless of input</span></code></pre>
+
+            <h2>Storage Module</h2>
+            <p>Storage backends for context persistence.</p>
+
+            <h3>RocksDBStorage</h3>
+            <p>Production storage backend.</p>
+            <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> RocksDBStorage, StorageConfig
+
+storage = RocksDBStorage(StorageConfig(base_dir=<span class="string">"./context"</span>))
+storage.initialize()</code></pre>
+
+            <h3>InMemoryStorage</h3>
+            <p>In-memory storage for testing.</p>
+            <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> InMemoryStorage, StorageConfig
+
+storage = InMemoryStorage(StorageConfig())
+storage.initialize()</code></pre>
+
+            <h2>Logging Module</h2>
+            <p>Structured logging utilities.</p>
+
+            <h3>get_logger</h3>
+            <p>Get structured logger for a module.</p>
+            <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> get_logger
+
+logger = get_logger(__name__)
+logger.info(<span class="string">"message"</span>, extra={<span class="string">"key"</span>: <span class="string">"value"</span>})</code></pre>
+
+            <h2>LLMProvider Protocol</h2>
+            <p>Interface for LLM provider integration.</p>
+
+            <h3>Required Methods</h3>
+            <pre><code><span class="keyword">class</span> <span class="function">MyProvider</span>:
+    <span class="keyword">async def</span> <span class="function">generate</span>(
+        <span class="keyword">self</span>,
+        messages: list[dict],
+        system: str | <span class="keyword">None</span> = <span class="keyword">None</span>,
+        **kwargs
+    ) -> str:
+        <span class="comment"># Return complete response</span>
+        <span class="keyword">pass</span>
+
+    <span class="keyword">async def</span> <span class="function">stream</span>(
+        <span class="keyword">self</span>,
+        messages: list[dict],
+        system: str | <span class="keyword">None</span> = <span class="keyword">None</span>,
+        **kwargs
+    ) -> AsyncIterator[str]:
+        <span class="comment"># Yield tokens as they arrive</span>
+        <span class="keyword">pass</span></code></pre>
+
+            <h2>Next Steps</h2>
+            <ul>
+                <li><a href="getting-started.html">Quick Start</a> - Get up and running</li>
+                <li><a href="core-concepts.html">Core Concepts</a> - Understand the architecture</li>
+                <li><a href="agent-system.html">Agent System</a> - Configure and run agents</li>
+            </ul>
+        </main>
+    </div>
+</body>
+</html>

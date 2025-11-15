@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Core Concepts - Agentic Framework</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --primary: #3b82f6; --primary-glow: rgba(59, 130, 246, 0.3); --accent: #8b5cf6;
+            --bg-primary: #0a0a0a; --bg-secondary: #1a1a1a; --bg-tertiary: #2a2a2a;
+            --text-primary: #f8f9fa; --text-secondary: #a0a0a0; --text-muted: #6b7280;
+            --border: rgba(255, 255, 255, 0.1); --sidebar-width: 280px;
+            --shadow: 0 8px 32px rgba(0, 0, 0, 0.4); --shadow-lg: 0 20px 60px rgba(0, 0, 0, 0.6);
+        }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif; line-height: 1.7; color: var(--text-primary); background: var(--bg-primary); }
+        .container { display: flex; min-height: 100vh; }
+        .sidebar { width: var(--sidebar-width); background: var(--bg-secondary); border-right: 1px solid var(--border); position: fixed; height: 100vh; overflow-y: auto; padding: 2rem 0; }
+        .sidebar::-webkit-scrollbar { width: 6px; }
+        .sidebar::-webkit-scrollbar-thumb { background: var(--bg-tertiary); border-radius: 10px; }
+        .logo { padding: 0 1.5rem 1.5rem; font-size: 1.75rem; font-weight: 700; background: linear-gradient(135deg, var(--primary), var(--accent)); background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent; letter-spacing: -0.02em; margin-bottom: 1.5rem; }
+        .nav-section { margin-bottom: 2rem; }
+        .nav-section-title { padding: 0.5rem 1.5rem; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.1em; }
+        .nav-link { display: block; padding: 0.75rem 1.5rem; color: var(--text-secondary); text-decoration: none; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); font-size: 0.9rem; position: relative; }
+        .nav-link::before { content: ''; position: absolute; left: 0; top: 50%; transform: translateY(-50%); width: 3px; height: 0; background: linear-gradient(135deg, var(--primary), var(--accent)); border-radius: 0 3px 3px 0; transition: height 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+        .nav-link:hover { background: rgba(59, 130, 246, 0.1); color: var(--text-primary); }
+        .nav-link:hover::before { height: 60%; }
+        .nav-link.active { background: rgba(59, 130, 246, 0.15); color: var(--primary); font-weight: 500; }
+        .nav-link.active::before { height: 60%; }
+        .main-content { margin-left: var(--sidebar-width); flex: 1; padding: 4rem 4rem 4rem 5rem; max-width: 1000px; }
+        h1 { font-size: 3.5rem; margin-bottom: 1rem; font-weight: 700; letter-spacing: -0.03em; background: linear-gradient(135deg, var(--text-primary), var(--text-secondary)); background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        h2 { font-size: 2rem; margin-top: 3rem; margin-bottom: 1.25rem; font-weight: 600; letter-spacing: -0.02em; color: var(--text-primary); padding-bottom: 0.75rem; border-bottom: 1px solid var(--border); }
+        h3 { font-size: 1.5rem; margin-top: 2rem; margin-bottom: 1rem; font-weight: 600; letter-spacing: -0.01em; color: var(--text-primary); }
+        h4 { font-size: 1.2rem; margin-top: 1.5rem; margin-bottom: 0.75rem; font-weight: 600; color: var(--primary); }
+        p { margin-bottom: 1.25rem; color: var(--text-secondary); font-size: 1.05rem; }
+        .subtitle { font-size: 1.3rem; color: var(--text-secondary); margin-bottom: 2.5rem; line-height: 1.6; }
+        code { background: var(--bg-tertiary); padding: 0.3rem 0.6rem; border-radius: 8px; font-family: 'SF Mono', 'Monaco', monospace; font-size: 0.9em; color: var(--primary); border: 1px solid var(--border); }
+        pre { background: var(--bg-secondary); color: var(--text-primary); padding: 2rem; border-radius: 16px; overflow-x: auto; margin: 2rem 0; line-height: 1.6; border: 1px solid var(--border); box-shadow: var(--shadow); }
+        pre code { background: none; color: inherit; padding: 0; border: none; font-size: 0.9rem; }
+        .keyword { color: #ff79c6; } .string { color: #50fa7b; } .function { color: #8be9fd; } .comment { color: var(--text-muted); }
+        ul, ol { margin: 1.5rem 0; padding-left: 2rem; }
+        li { margin: 0.75rem 0; color: var(--text-secondary); }
+        li strong { color: var(--text-primary); }
+        a { color: var(--primary); text-decoration: none; transition: color 0.2s; }
+        a:hover { color: var(--accent); }
+        .concept-card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 16px; padding: 2rem; margin: 1.5rem 0; border-left: 4px solid var(--primary); }
+        .alert { padding: 1.5rem; border-radius: 16px; margin: 2rem 0; background: rgba(59, 130, 246, 0.1); border-left: 4px solid var(--primary); }
+        .alert strong { color: var(--primary); }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <aside class="sidebar">
+            <div class="logo">Agentic</div>
+            <nav>
+                <div class="nav-section">
+                    <div class="nav-section-title">Getting Started</div>
+                    <a href="index.html" class="nav-link">Overview</a>
+                    <a href="getting-started.html" class="nav-link">Quick Start</a>
+                    <a href="core-concepts.html" class="nav-link active">Core Concepts</a>
+                </div>
+                <div class="nav-section">
+                    <div class="nav-section-title">Core Systems</div>
+                    <a href="agent-system.html" class="nav-link">Agent System</a>
+                    <a href="tools.html" class="nav-link">Tools</a>
+                    <a href="patterns.html" class="nav-link">Patterns</a>
+                    <a href="logic-flows.html" class="nav-link">Logic Flows</a>
+                </div>
+                <div class="nav-section">
+                    <div class="nav-section-title">Advanced</div>
+                    <a href="multi-agent.html" class="nav-link">Multi-Agent</a>
+                    <a href="events.html" class="nav-link">Events</a>
+                    <a href="resilience.html" class="nav-link">Resilience</a>
+                    <a href="validation.html" class="nav-link">Validation</a>
+                </div>
+                <div class="nav-section">
+                    <div class="nav-section-title">Reference</div>
+                    <a href="api-reference.html" class="nav-link">API Reference</a>
+                </div>
+            </nav>
+        </aside>
+
+        <main class="main-content">
+            <h1>Core Concepts</h1>
+            <p class="subtitle">Understanding the fundamental architecture of Agentic</p>
+
+            <h2>Architecture Overview</h2>
+            <p>Agentic is built around discrete, composable components that work together to enable agent execution. Each component has a single, well-defined responsibility:</p>
+
+            <div class="concept-card">
+                <h4>Storage Layer</h4>
+                <p>Provides persistent storage via RocksDB or in-memory storage for testing. All agent state is stored here.</p>
+            </div>
+
+            <div class="concept-card">
+                <h4>Context Manager</h4>
+                <p>Manages versioned context with automatic iteration tracking. Wraps storage and provides version control.</p>
+            </div>
+
+            <div class="concept-card">
+                <h4>Pattern System</h4>
+                <p>Extracts structured segments (tools, reasoning, responses) from LLM output using configurable patterns.</p>
+            </div>
+
+            <div class="concept-card">
+                <h4>Tool System</h4>
+                <p>Executes tools with validation, timeout handling, and multi-mode execution (thread, process, async).</p>
+            </div>
+
+            <div class="concept-card">
+                <h4>Event System</h4>
+                <p>Streams real-time events for all operations: LLM chunks, tool execution, pattern detection, status changes.</p>
+            </div>
+
+            <h2>Context Management</h2>
+            <p>Context is the core state management system in Agentic. Every piece of agent state is stored in a versioned context.</p>
+
+            <h3>Key Features</h3>
+            <ul>
+                <li><strong>Automatic Versioning:</strong> Every write creates a new version, preserving full history</li>
+                <li><strong>Iteration Tracking:</strong> Global iteration counter tracks agent execution steps</li>
+                <li><strong>Tombstone Deletion:</strong> Deletions create tombstone versions, preserving history</li>
+                <li><strong>Pattern-based Access:</strong> List keys with prefix matching for efficient queries</li>
+            </ul>
+
+            <h3>Context Operations</h3>
+            <pre><code><span class="comment"># Set creates a new version (accepts string or bytes)</span>
+context.set(<span class="string">"llm_output"</span>, <span class="string">"Agent response"</span>)
+
+<span class="comment"># Update overwrites current version (for streaming)</span>
+context.update(<span class="string">"streaming_content"</span>, <span class="string">"Partial text..."</span>)
+
+<span class="comment"># Get returns auto-decoded string (most common use case)</span>
+text = context.get(<span class="string">"llm_output"</span>)
+<span class="function">print</span>(text)  <span class="comment"># "Agent response"</span>
+
+<span class="comment"># Get with specific version</span>
+old_text = context.get(<span class="string">"llm_output"</span>, version=1)
+
+<span class="comment"># Get binary data (images, pickled objects, etc.)</span>
+binary_data = context.get_bytes(<span class="string">"model_weights"</span>)
+
+<span class="comment"># Get full record with metadata (version, iteration, timestamp)</span>
+record = context.get_record(<span class="string">"llm_output"</span>)
+<span class="function">print</span>(record.value)  <span class="comment"># bytes</span>
+<span class="function">print</span>(record.version)  <span class="comment"># 1</span>
+<span class="function">print</span>(record.iteration)  <span class="comment"># Current iteration</span>
+
+<span class="comment"># Get full history</span>
+history = context.get_history(<span class="string">"llm_output"</span>, max_versions=10)
+
+<span class="comment"># List all keys with prefix</span>
+keys = context.list_keys(prefix=<span class="string">"tool:"</span>)</code></pre>
+
+            <h2>Iterations</h2>
+            <p>Iterations provide a global timeline for agent execution. Each agent step increments the iteration counter, creating a chronological record of all operations.</p>
+
+            <h3>Iteration Manager</h3>
+            <pre><code>iteration_mgr = IterationManager(storage)
+
+<span class="comment"># Get current iteration</span>
+current = iteration_mgr.get()  <span class="comment"># 0</span>
+
+<span class="comment"># Increment iteration</span>
+next_iter = iteration_mgr.next()  <span class="comment"># 1</span>
+
+<span class="comment"># Register event markers</span>
+iteration_mgr.register_event(<span class="string">"agent_started"</span>)</code></pre>
+
+            <div class="alert">
+                <strong>Automatic Iteration:</strong> By default, <code>AgentRunner</code> auto-increments iterations on each step. Disable with <code>auto_increment_iteration=False</code> in <code>AgentConfig</code>.
+            </div>
+
+            <h2>Patterns</h2>
+            <p>Patterns define how to extract structured segments from unstructured LLM output.</p>
+
+            <h3>Pattern Types</h3>
+            <ul>
+                <li><strong>TOOL:</strong> Tool invocations (parsed as JSON or line format)</li>
+                <li><strong>REASONING:</strong> Internal reasoning steps</li>
+                <li><strong>RESPONSE:</strong> Final response to user</li>
+            </ul>
+
+            <h3>Default Pattern Set</h3>
+            <pre><code><span class="comment"># Default patterns use XML-style tags</span>
+&lt;tool&gt;
+{
+  <span class="string">"name"</span>: <span class="string">"search"</span>,
+  <span class="string">"arguments"</span>: {<span class="string">"query"</span>: <span class="string">"Python"</span>}
+}
+&lt;/tool&gt;
+
+&lt;reasoning&gt;
+I need to search for Python information first.
+&lt;/reasoning&gt;
+
+&lt;response&gt;
+Here's what I found about Python...
+&lt;/response&gt;</code></pre>
+
+            <h3>Custom Patterns</h3>
+            <p>Create custom pattern sets for different LLM formats:</p>
+            <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> PatternSet, Pattern, SegmentType
+
+custom_patterns = PatternSet(
+    name=<span class="string">"custom"</span>,
+    patterns=[
+        Pattern(
+            name=<span class="string">"tool"</span>,
+            start_tag=<span class="string">"```json"</span>,
+            end_tag=<span class="string">"```"</span>,
+            segment_type=SegmentType.TOOL,
+            expected_format=<span class="string">"json"</span>
+        ),
+        Pattern(
+            name=<span class="string">"thinking"</span>,
+            start_tag=<span class="string">"&lt;think&gt;"</span>,
+            end_tag=<span class="string">"&lt;/think&gt;"</span>,
+            segment_type=SegmentType.REASONING
+        )
+    ],
+    default_response_behavior=<span class="string">"all_remaining"</span>
+)
+
+patterns.register_pattern_set(custom_patterns)</code></pre>
+
+            <h2>Tools</h2>
+            <p>Tools are functions that agents can execute. Agentic provides validation, timeout handling, and multiple execution modes.</p>
+
+            <h3>Tool Definition</h3>
+            <pre><code><span class="keyword">def</span> <span class="function">calculate</span>(args):
+    a = args[<span class="string">"a"</span>]
+    b = args[<span class="string">"b"</span>]
+    operation = args.get(<span class="string">"operation"</span>, <span class="string">"add"</span>)
+
+    <span class="keyword">if</span> operation == <span class="string">"add"</span>:
+        <span class="keyword">return</span> {<span class="string">"result"</span>: a + b}
+    <span class="keyword">elif</span> operation == <span class="string">"multiply"</span>:
+        <span class="keyword">return</span> {<span class="string">"result"</span>: a * b}
+
+tool = create_tool(
+    name=<span class="string">"calculate"</span>,
+    func=calculate,
+    input_schema={
+        <span class="string">"validator"</span>: <span class="string">"simple"</span>,
+        <span class="string">"required"</span>: [<span class="string">"a"</span>, <span class="string">"b"</span>],
+        <span class="string">"fields"</span>: {
+            <span class="string">"a"</span>: {<span class="string">"type"</span>: <span class="string">"int"</span>},
+            <span class="string">"b"</span>: {<span class="string">"type"</span>: <span class="string">"int"</span>},
+            <span class="string">"operation"</span>: {<span class="string">"type"</span>: <span class="string">"str"</span>}
+        }
+    },
+    timeout_seconds=10.0,
+    processing_mode=ProcessingMode.THREAD
+)</code></pre>
+
+            <h3>Processing Modes</h3>
+            <ul>
+                <li><strong>THREAD:</strong> Execute in thread pool (default, best for I/O-bound tools)</li>
+                <li><strong>PROCESS:</strong> Execute in process pool (CPU-bound tools, isolation)</li>
+                <li><strong>ASYNC:</strong> Execute as async coroutine (native async tools)</li>
+            </ul>
+
+            <h2>Events</h2>
+            <p>Everything in Agentic flows through events. Events enable streaming, real-time monitoring, and reactive patterns.</p>
+
+            <h3>Event Types</h3>
+            <ul>
+                <li><code>LLMChunkEvent</code> - Individual chunks from LLM</li>
+                <li><code>LLMCompleteEvent</code> - LLM generation complete</li>
+                <li><code>PatternStartEvent</code> - Pattern opening tag detected</li>
+                <li><code>PatternEndEvent</code> - Pattern complete with content</li>
+                <li><code>ToolStartEvent</code> - Tool execution started</li>
+                <li><code>ToolEndEvent</code> - Tool execution complete</li>
+                <li><code>StatusEvent</code> - Agent status change</li>
+                <li><code>StepCompleteEvent</code> - Agent step complete with final result</li>
+            </ul>
+
+            <h3>Consuming Events</h3>
+            <pre><code><span class="keyword">async for</span> event <span class="keyword">in</span> runner.step_stream(user_input):
+    <span class="keyword">match</span> event.type:
+        <span class="keyword">case</span> <span class="string">"llm_chunk"</span>:
+            <span class="function">print</span>(event.chunk, end=<span class="string">""</span>)
+        <span class="keyword">case</span> <span class="string">"tool_start"</span>:
+            <span class="function">print</span>(<span class="string">f"\n[Tool: {event.tool_name}]"</span>)
+        <span class="keyword">case</span> <span class="string">"step_complete"</span>:
+            result = event.result
+            <span class="function">print</span>(<span class="string">f"\nStatus: {result.status}"</span>)</code></pre>
+
+            <h2>Agent Lifecycle</h2>
+            <p>Understanding the agent execution flow:</p>
+
+            <ol>
+                <li><strong>Prompt Building:</strong> Construct prompt from context using <code>input_mapping</code></li>
+                <li><strong>LLM Generation:</strong> Stream chunks from LLM provider</li>
+                <li><strong>Pattern Extraction:</strong> Detect and extract patterns in real-time</li>
+                <li><strong>Tool Execution:</strong> Execute detected tools (sequential or concurrent)</li>
+                <li><strong>Context Update:</strong> Store results using <code>output_mapping</code></li>
+                <li><strong>Result Return:</strong> Emit <code>StepCompleteEvent</code> with final result</li>
+            </ol>
+
+            <h2>Next Steps</h2>
+            <ul>
+                <li><a href="agent-system.html">Agent System</a> - Configure agents and execution</li>
+                <li><a href="patterns.html">Patterns</a> - Deep dive into pattern extraction</li>
+                <li><a href="tools.html">Tools</a> - Create and manage tools</li>
+                <li><a href="logic-flows.html">Logic Flows</a> - Build multi-step agent loops</li>
+            </ul>
+        </main>
+    </div>
+</body>
+</html>

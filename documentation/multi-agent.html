@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-Agent - Agentic Framework</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --primary: #3b82f6; --primary-glow: rgba(59, 130, 246, 0.3); --accent: #8b5cf6;
+            --bg-primary: #0a0a0a; --bg-secondary: #1a1a1a; --bg-tertiary: #2a2a2a;
+            --text-primary: #f8f9fa; --text-secondary: #a0a0a0; --text-muted: #6b7280;
+            --border: rgba(255, 255, 255, 0.1); --sidebar-width: 280px;
+            --shadow: 0 8px 32px rgba(0, 0, 0, 0.4); --shadow-lg: 0 20px 60px rgba(0, 0, 0, 0.6);
+        }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif; line-height: 1.7; color: var(--text-primary); background: var(--bg-primary); }
+        .container { display: flex; min-height: 100vh; }
+        .sidebar { width: var(--sidebar-width); background: var(--bg-secondary); border-right: 1px solid var(--border); position: fixed; height: 100vh; overflow-y: auto; padding: 2rem 0; }
+        .sidebar::-webkit-scrollbar { width: 6px; }
+        .sidebar::-webkit-scrollbar-thumb { background: var(--bg-tertiary); border-radius: 10px; }
+        .logo { padding: 0 1.5rem 1.5rem; font-size: 1.75rem; font-weight: 700; background: linear-gradient(135deg, var(--primary), var(--accent)); background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent; letter-spacing: -0.02em; margin-bottom: 1.5rem; }
+        .nav-section { margin-bottom: 2rem; }
+        .nav-section-title { padding: 0.5rem 1.5rem; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.1em; }
+        .nav-link { display: block; padding: 0.75rem 1.5rem; color: var(--text-secondary); text-decoration: none; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); font-size: 0.9rem; position: relative; }
+        .nav-link::before { content: ''; position: absolute; left: 0; top: 50%; transform: translateY(-50%); width: 3px; height: 0; background: linear-gradient(135deg, var(--primary), var(--accent)); border-radius: 0 3px 3px 0; transition: height 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+        .nav-link:hover { background: rgba(59, 130, 246, 0.1); color: var(--text-primary); }
+        .nav-link:hover::before { height: 60%; }
+        .nav-link.active { background: rgba(59, 130, 246, 0.15); color: var(--primary); font-weight: 500; }
+        .nav-link.active::before { height: 60%; }
+        .main-content { margin-left: var(--sidebar-width); flex: 1; padding: 4rem 4rem 4rem 5rem; max-width: 1000px; }
+        h1 { font-size: 3.5rem; margin-bottom: 1rem; font-weight: 700; letter-spacing: -0.03em; background: linear-gradient(135deg, var(--text-primary), var(--text-secondary)); background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        h2 { font-size: 2rem; margin-top: 3rem; margin-bottom: 1.25rem; font-weight: 600; letter-spacing: -0.02em; color: var(--text-primary); padding-bottom: 0.75rem; border-bottom: 1px solid var(--border); }
+        h3 { font-size: 1.5rem; margin-top: 2rem; margin-bottom: 1rem; font-weight: 600; letter-spacing: -0.01em; color: var(--text-primary); }
+        p { margin-bottom: 1.25rem; color: var(--text-secondary); font-size: 1.05rem; }
+        .subtitle { font-size: 1.3rem; color: var(--text-secondary); margin-bottom: 2.5rem; line-height: 1.6; }
+        code { background: var(--bg-tertiary); padding: 0.3rem 0.6rem; border-radius: 8px; font-family: 'SF Mono', 'Monaco', monospace; font-size: 0.9em; color: var(--primary); border: 1px solid var(--border); }
+        pre { background: var(--bg-secondary); color: var(--text-primary); padding: 2rem; border-radius: 16px; overflow-x: auto; margin: 2rem 0; line-height: 1.6; border: 1px solid var(--border); box-shadow: var(--shadow); }
+        pre code { background: none; color: inherit; padding: 0; border: none; font-size: 0.9rem; }
+        .keyword { color: #ff79c6; } .string { color: #50fa7b; } .function { color: #8be9fd; } .comment { color: var(--text-muted); }
+        ul, ol { margin: 1.5rem 0; padding-left: 2rem; }
+        li { margin: 0.75rem 0; color: var(--text-secondary); }
+        li strong, li code { color: var(--text-primary); }
+        a { color: var(--primary); text-decoration: none; transition: color 0.2s; }
+        a:hover { color: var(--accent); }
+        .alert { padding: 1.5rem; border-radius: 16px; margin: 2rem 0; background: rgba(59, 130, 246, 0.1); border-left: 4px solid var(--primary); }
+        .alert strong { color: var(--primary); }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <aside class="sidebar">
+            <div class="logo">Agentic</div>
+            <nav>
+                <div class="nav-section">
+                    <div class="nav-section-title">Getting Started</div>
+                    <a href="index.html" class="nav-link">Overview</a>
+                    <a href="getting-started.html" class="nav-link">Quick Start</a>
+                    <a href="core-concepts.html" class="nav-link">Core Concepts</a>
+                </div>
+                <div class="nav-section">
+                    <div class="nav-section-title">Core Systems</div>
+                    <a href="agent-system.html" class="nav-link">Agent System</a>
+                    <a href="tools.html" class="nav-link">Tools</a>
+                    <a href="patterns.html" class="nav-link">Patterns</a>
+                    <a href="logic-flows.html" class="nav-link">Logic Flows</a>
+                </div>
+                <div class="nav-section">
+                    <div class="nav-section-title">Advanced</div>
+                    <a href="multi-agent.html" class="nav-link active">Multi-Agent</a>
+                    <a href="events.html" class="nav-link">Events</a>
+                    <a href="resilience.html" class="nav-link">Resilience</a>
+                    <a href="validation.html" class="nav-link">Validation</a>
+                </div>
+                <div class="nav-section">
+                    <div class="nav-section-title">Reference</div>
+                    <a href="api-reference.html" class="nav-link">API Reference</a>
+                </div>
+            </nav>
+        </aside>
+
+        <main class="main-content">
+            <h1>Multi-Agent Patterns</h1>
+            <p class="subtitle">Coordinate multiple agents for complex workflows</p>
+
+            <h2>Overview</h2>
+            <p>Agentic provides built-in patterns for coordinating multiple agents. These patterns handle common multi-agent workflows while leveraging the existing Agent/AgentRunner infrastructure.</p>
+
+            <h2>Agent Chain</h2>
+            <p>Sequential execution where each agent's output becomes the next agent's input:</p>
+
+            <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> AgentChain, AgentChainConfig
+
+<span class="comment"># Create specialized agents</span>
+researcher = Agent(research_config, context, patterns, tools, llm)
+analyzer = Agent(analysis_config, context, patterns, tools, llm)
+summarizer = Agent(summary_config, context, patterns, tools, llm)
+
+<span class="comment"># Build chain</span>
+chain = AgentChain(
+    agents=[
+        (<span class="string">"researcher"</span>, researcher),
+        (<span class="string">"analyzer"</span>, analyzer),
+        (<span class="string">"summarizer"</span>, summarizer)
+    ],
+    config=AgentChainConfig(
+        pass_mode=<span class="string">"response"</span>,  <span class="comment"># Pass response text to next</span>
+        prepend_context=<span class="keyword">True</span>      <span class="comment"># Include context about previous agent</span>
+    )
+)
+
+<span class="comment"># Execute chain</span>
+<span class="keyword">async for</span> event <span class="keyword">in</span> chain.execute(<span class="string">"Research quantum computing"</span>):
+    <span class="keyword">if</span> event.type == <span class="string">"step_complete"</span>:
+        <span class="function">print</span>(<span class="string">f"Agent completed: {event.result.segments.response}"</span>)</code></pre>
+
+            <h3>Chain Configuration</h3>
+            <ul>
+                <li><code>pass_mode</code>: "response" | "full_context" | "tool_results" | "custom"</li>
+                <li><code>prepend_context</code>: Include context about previous agent</li>
+                <li><code>context_template</code>: Template for context formatting</li>
+                <li><code>transform_fn</code>: Custom function to transform output between agents</li>
+            </ul>
+
+            <h2>Supervisor-Worker Pattern</h2>
+            <p>One supervisor delegates tasks to specialized workers:</p>
+
+            <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> SupervisorPattern, SupervisorConfig
+
+<span class="comment"># Create supervisor and workers</span>
+supervisor = Agent(supervisor_config, context, patterns, tools, llm)
+workers = {
+    <span class="string">"search_agent"</span>: Agent(search_config, context, patterns, tools, llm),
+    <span class="string">"data_agent"</span>: Agent(data_config, context, patterns, tools, llm),
+    <span class="string">"code_agent"</span>: Agent(code_config, context, patterns, tools, llm)
+}
+
+pattern = SupervisorPattern(
+    supervisor=supervisor,
+    workers=workers,
+    config=SupervisorConfig(
+        delegation_pattern_name=<span class="string">"delegate"</span>,  <span class="comment"># Pattern for delegation</span>
+        worker_key=<span class="string">"to"</span>,                       <span class="comment"># Key to extract worker name</span>
+        task_key=<span class="string">"task"</span>,                      <span class="comment"># Key to extract task</span>
+        max_delegation_rounds=10             <span class="comment"># Prevent infinite loops</span>
+    )
+)
+
+<span class="comment"># Execute</span>
+<span class="keyword">async for</span> event <span class="keyword">in</span> pattern.execute(<span class="string">"Build a web scraper"</span>):
+    <span class="keyword">if</span> event.type == <span class="string">"status"</span>:
+        <span class="function">print</span>(event.message)</code></pre>
+
+            <h3>Delegation Format</h3>
+            <p>Supervisor uses the delegation pattern in its output:</p>
+            <pre><code>&lt;delegate&gt;
+{
+  <span class="string">"to"</span>: <span class="string">"search_agent"</span>,
+  <span class="string">"task"</span>: <span class="string">"Search for Python web scraping libraries"</span>
+}
+&lt;/delegate&gt;</code></pre>
+
+            <h2>Parallel Pattern</h2>
+            <p>Multiple agents analyze the same input in parallel, results merged:</p>
+
+            <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> ParallelPattern, ParallelConfig
+
+<span class="comment"># Create agents with different perspectives</span>
+agents = {
+    <span class="string">"technical"</span>: Agent(tech_config, context, patterns, tools, llm),
+    <span class="string">"business"</span>: Agent(biz_config, context, patterns, tools, llm),
+    <span class="string">"security"</span>: Agent(sec_config, context, patterns, tools, llm)
+}
+
+<span class="comment"># Optional merger agent</span>
+merger = Agent(merger_config, context, patterns, tools, llm)
+
+parallel = ParallelPattern(
+    agents=agents,
+    merger=merger,
+    config=ParallelConfig(
+        merge_strategy=<span class="string">"agent"</span>,  <span class="comment"># Use merger agent</span>
+        timeout_seconds=60.0
+    )
+)
+
+<span class="keyword">async for</span> event <span class="keyword">in</span> parallel.execute_and_merge(<span class="string">"Analyze this API design"</span>):
+    <span class="keyword">if</span> event.type == <span class="string">"step_complete"</span>:
+        <span class="function">print</span>(event.result.segments.response)</code></pre>
+
+            <h3>Merge Strategies</h3>
+            <ul>
+                <li><code>"agent"</code> - Use merger agent to synthesize results</li>
+                <li><code>"concat"</code> - Concatenate all results</li>
+                <li><code>"voting"</code> - Simple voting on common elements</li>
+            </ul>
+
+            <h2>Debate Pattern</h2>
+            <p>Agents debate a topic until consensus:</p>
+
+            <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> DebatePattern, DebateConfig
+
+<span class="comment"># Create debating agents</span>
+agents = {
+    <span class="string">"advocate"</span>: Agent(advocate_config, context, patterns, tools, llm),
+    <span class="string">"critic"</span>: Agent(critic_config, context, patterns, tools, llm),
+    <span class="string">"mediator"</span>: Agent(mediator_config, context, patterns, tools, llm)
+}
+
+<span class="comment"># Optional moderator for final summary</span>
+moderator = Agent(mod_config, context, patterns, tools, llm)
+
+debate = DebatePattern(
+    agents=agents,
+    moderator=moderator,
+    config=DebateConfig(
+        max_rounds=5,
+        consensus_detector=<span class="keyword">lambda</span> responses: check_consensus(responses)
+    )
+)
+
+<span class="keyword">async for</span> event <span class="keyword">in</span> debate.converge(<span class="string">"Should we use microservices?"</span>):
+    <span class="keyword">if</span> event.type == <span class="string">"status"</span>:
+        <span class="function">print</span>(event.message)</code></pre>
+
+            <h2>Shared Context</h2>
+            <p>All agents in a pattern can share the same context manager:</p>
+
+            <pre><code><span class="comment"># Shared context for all agents</span>
+shared_context = ContextManager(storage, iteration_mgr)
+
+<span class="comment"># Create agents with shared context</span>
+agent1 = Agent(config1, shared_context, patterns1, tools1, llm)
+agent2 = Agent(config2, shared_context, patterns2, tools2, llm)
+
+<span class="comment"># Agents can read each other's outputs</span>
+<span class="comment"># via context keys</span></code></pre>
+
+            <h2>Custom Multi-Agent Patterns</h2>
+            <p>Build your own coordination patterns:</p>
+
+            <pre><code><span class="keyword">class</span> <span class="function">CustomPattern</span>:
+    <span class="keyword">def</span> <span class="function">__init__</span>(<span class="keyword">self</span>, agents):
+        <span class="keyword">self</span>._runners = {
+            name: AgentRunner(agent)
+            <span class="keyword">for</span> name, agent <span class="keyword">in</span> agents.items()
+        }
+
+    <span class="keyword">async def</span> <span class="function">execute</span>(<span class="keyword">self</span>, input_text):
+        <span class="comment"># Custom coordination logic</span>
+        <span class="keyword">for</span> name, runner <span class="keyword">in</span> <span class="keyword">self</span>._runners.items():
+            <span class="keyword">async for</span> event <span class="keyword">in</span> runner.step_stream(input_text):
+                <span class="keyword">yield</span> event
+
+                <span class="comment"># Custom decision logic</span>
+                <span class="keyword">if</span> event.type == <span class="string">"step_complete"</span>:
+                    <span class="keyword">if</span> event.result.status == AgentStatus.DONE:
+                        <span class="keyword">return</span>  <span class="comment"># Stop on first completion</span></code></pre>
+
+            <h2>Best Practices</h2>
+            <ul>
+                <li>Use shared context for agent communication</li>
+                <li>Set appropriate timeouts to prevent hanging</li>
+                <li>Handle errors gracefully in coordination logic</li>
+                <li>Monitor iteration counts to prevent infinite loops</li>
+                <li>Use clear agent IDs for debugging</li>
+                <li>Test patterns with smaller agent counts first</li>
+                <li>Consider costs when running many agents in parallel</li>
+            </ul>
+
+            <div class="alert">
+                <strong>Performance:</strong> Parallel patterns execute agents concurrently but still require LLM API calls for each agent. Monitor costs and latency carefully.
+            </div>
+
+            <h2>Next Steps</h2>
+            <ul>
+                <li><a href="agent-system.html">Agent System</a> - Configure specialized agents</li>
+                <li><a href="logic-flows.html">Logic Flows</a> - Add conditional logic to multi-agent systems</li>
+                <li><a href="events.html">Events</a> - Monitor multi-agent execution</li>
+            </ul>
+        </main>
+    </div>
+</body>
+</html>

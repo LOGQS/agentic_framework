@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Patterns - Agentic Framework</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --primary: #3b82f6; --primary-glow: rgba(59, 130, 246, 0.3); --accent: #8b5cf6;
+            --bg-primary: #0a0a0a; --bg-secondary: #1a1a1a; --bg-tertiary: #2a2a2a;
+            --text-primary: #f8f9fa; --text-secondary: #a0a0a0; --text-muted: #6b7280;
+            --border: rgba(255, 255, 255, 0.1); --sidebar-width: 280px;
+            --shadow: 0 8px 32px rgba(0, 0, 0, 0.4); --shadow-lg: 0 20px 60px rgba(0, 0, 0, 0.6);
+        }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif; line-height: 1.7; color: var(--text-primary); background: var(--bg-primary); }
+        .container { display: flex; min-height: 100vh; }
+        .sidebar { width: var(--sidebar-width); background: var(--bg-secondary); border-right: 1px solid var(--border); position: fixed; height: 100vh; overflow-y: auto; padding: 2rem 0; }
+        .sidebar::-webkit-scrollbar { width: 6px; }
+        .sidebar::-webkit-scrollbar-thumb { background: var(--bg-tertiary); border-radius: 10px; }
+        .logo { padding: 0 1.5rem 1.5rem; font-size: 1.75rem; font-weight: 700; background: linear-gradient(135deg, var(--primary), var(--accent)); background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent; letter-spacing: -0.02em; margin-bottom: 1.5rem; }
+        .nav-section { margin-bottom: 2rem; }
+        .nav-section-title { padding: 0.5rem 1.5rem; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.1em; }
+        .nav-link { display: block; padding: 0.75rem 1.5rem; color: var(--text-secondary); text-decoration: none; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); font-size: 0.9rem; position: relative; }
+        .nav-link::before { content: ''; position: absolute; left: 0; top: 50%; transform: translateY(-50%); width: 3px; height: 0; background: linear-gradient(135deg, var(--primary), var(--accent)); border-radius: 0 3px 3px 0; transition: height 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+        .nav-link:hover { background: rgba(59, 130, 246, 0.1); color: var(--text-primary); }
+        .nav-link:hover::before { height: 60%; }
+        .nav-link.active { background: rgba(59, 130, 246, 0.15); color: var(--primary); font-weight: 500; }
+        .nav-link.active::before { height: 60%; }
+        .main-content { margin-left: var(--sidebar-width); flex: 1; padding: 4rem 4rem 4rem 5rem; max-width: 1000px; }
+        h1 { font-size: 3.5rem; margin-bottom: 1rem; font-weight: 700; letter-spacing: -0.03em; background: linear-gradient(135deg, var(--text-primary), var(--text-secondary)); background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        h2 { font-size: 2rem; margin-top: 3rem; margin-bottom: 1.25rem; font-weight: 600; letter-spacing: -0.02em; color: var(--text-primary); padding-bottom: 0.75rem; border-bottom: 1px solid var(--border); }
+        h3 { font-size: 1.5rem; margin-top: 2rem; margin-bottom: 1rem; font-weight: 600; letter-spacing: -0.01em; color: var(--text-primary); }
+        p { margin-bottom: 1.25rem; color: var(--text-secondary); font-size: 1.05rem; }
+        .subtitle { font-size: 1.3rem; color: var(--text-secondary); margin-bottom: 2.5rem; line-height: 1.6; }
+        code { background: var(--bg-tertiary); padding: 0.3rem 0.6rem; border-radius: 8px; font-family: 'SF Mono', 'Monaco', monospace; font-size: 0.9em; color: var(--primary); border: 1px solid var(--border); }
+        pre { background: var(--bg-secondary); color: var(--text-primary); padding: 2rem; border-radius: 16px; overflow-x: auto; margin: 2rem 0; line-height: 1.6; border: 1px solid var(--border); box-shadow: var(--shadow); }
+        pre code { background: none; color: inherit; padding: 0; border: none; font-size: 0.9rem; }
+        .keyword { color: #ff79c6; } .string { color: #50fa7b; } .function { color: #8be9fd; } .comment { color: var(--text-muted); }
+        ul, ol { margin: 1.5rem 0; padding-left: 2rem; }
+        li { margin: 0.75rem 0; color: var(--text-secondary); }
+        li strong, li code { color: var(--text-primary); }
+        a { color: var(--primary); text-decoration: none; transition: color 0.2s; }
+        a:hover { color: var(--accent); }
+        .alert { padding: 1.5rem; border-radius: 16px; margin: 2rem 0; background: rgba(59, 130, 246, 0.1); border-left: 4px solid var(--primary); }
+        .alert strong { color: var(--primary); }
+        .pattern-example { background: var(--bg-tertiary); padding: 1.5rem; border-radius: 12px; margin: 1.5rem 0; border-left: 3px solid var(--accent); }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <aside class="sidebar">
+            <div class="logo">Agentic</div>
+            <nav>
+                <div class="nav-section">
+                    <div class="nav-section-title">Getting Started</div>
+                    <a href="index.html" class="nav-link">Overview</a>
+                    <a href="getting-started.html" class="nav-link">Quick Start</a>
+                    <a href="core-concepts.html" class="nav-link">Core Concepts</a>
+                </div>
+                <div class="nav-section">
+                    <div class="nav-section-title">Core Systems</div>
+                    <a href="agent-system.html" class="nav-link">Agent System</a>
+                    <a href="tools.html" class="nav-link">Tools</a>
+                    <a href="patterns.html" class="nav-link active">Patterns</a>
+                    <a href="logic-flows.html" class="nav-link">Logic Flows</a>
+                </div>
+                <div class="nav-section">
+                    <div class="nav-section-title">Advanced</div>
+                    <a href="multi-agent.html" class="nav-link">Multi-Agent</a>
+                    <a href="events.html" class="nav-link">Events</a>
+                    <a href="resilience.html" class="nav-link">Resilience</a>
+                    <a href="validation.html" class="nav-link">Validation</a>
+                </div>
+                <div class="nav-section">
+                    <div class="nav-section-title">Reference</div>
+                    <a href="api-reference.html" class="nav-link">API Reference</a>
+                </div>
+            </nav>
+        </aside>
+
+        <main class="main-content">
+            <h1>Patterns</h1>
+            <p class="subtitle">Extract structured data from unstructured LLM output</p>
+
+            <h2>Overview</h2>
+            <p>Patterns define how to extract structured segments (tools, reasoning, responses) from raw LLM text. Agentic supports custom patterns, allowing you to adapt to different LLM output formats.</p>
+
+            <h2>Pattern Types</h2>
+
+            <h3>TOOL</h3>
+            <p>Extracts tool invocations from LLM output. Supports JSON and line-based formats.</p>
+            <div class="pattern-example">
+                <code>&lt;tool&gt;{"name": "search", "arguments": {"query": "Python"}}&lt;/tool&gt;</code>
+            </div>
+
+            <h3>REASONING</h3>
+            <p>Captures internal thought processes and reasoning steps.</p>
+            <div class="pattern-example">
+                <code>&lt;reasoning&gt;I need to search for information first.&lt;/reasoning&gt;</code>
+            </div>
+
+            <h3>RESPONSE</h3>
+            <p>Extracts the final response to the user.</p>
+            <div class="pattern-example">
+                <code>&lt;response&gt;Here's what I found about Python...&lt;/response&gt;</code>
+            </div>
+
+            <h2>Built-in Pattern Sets</h2>
+
+            <h3>Default Pattern Set</h3>
+            <p>Uses XML-style tags for all segment types:</p>
+            <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> create_default_pattern_set
+
+patterns = create_default_pattern_set()
+<span class="comment"># Uses: &lt;tool&gt;, &lt;reasoning&gt;, &lt;response&gt;</span></code></pre>
+
+            <h3>JSON Tools Pattern Set</h3>
+            <p>Uses JSON code blocks for tools, XML for others:</p>
+            <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> create_json_tools_pattern_set
+
+patterns = create_json_tools_pattern_set()
+<span class="comment"># Tools: ```json...```</span>
+<span class="comment"># Others: &lt;reasoning&gt;, &lt;response&gt;</span></code></pre>
+
+            <h3>XML Tools Pattern Set</h3>
+            <p>Alternative XML tags throughout:</p>
+            <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> create_xml_tools_pattern_set
+
+patterns = create_xml_tools_pattern_set()
+<span class="comment"># &lt;tool_call&gt;, &lt;thinking&gt;, &lt;answer&gt;</span></code></pre>
+
+            <h3>Backtick Tools Pattern Set</h3>
+            <p>Uses triple backticks for tools:</p>
+            <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> create_backtick_tools_pattern_set
+
+patterns = create_backtick_tools_pattern_set()
+<span class="comment"># Tools: ```tool...```</span></code></pre>
+
+            <h2>Custom Pattern Sets</h2>
+            <p>Create your own pattern set to match your LLM's output format:</p>
+
+            <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> PatternSet, Pattern, SegmentType, PatternRegistry, RocksDBStorage
+
+storage = RocksDBStorage(<span class="string">"./data"</span>)
+pattern_registry = PatternRegistry(storage)
+
+custom_patterns = PatternSet(
+    name=<span class="string">"custom"</span>,
+    patterns=[
+        Pattern(
+            name=<span class="string">"tool"</span>,
+            start_tag=<span class="string">"[TOOL:"</span>,
+            end_tag=<span class="string">":TOOL]"</span>,
+            segment_type=SegmentType.TOOL,
+            expected_format=<span class="string">"json"</span>
+        ),
+        Pattern(
+            name=<span class="string">"thinking"</span>,
+            start_tag=<span class="string">"[THINK:"</span>,
+            end_tag=<span class="string">":THINK]"</span>,
+            segment_type=SegmentType.REASONING
+        ),
+        Pattern(
+            name=<span class="string">"answer"</span>,
+            start_tag=<span class="string">"[ANSWER:"</span>,
+            end_tag=<span class="string">":ANSWER]"</span>,
+            segment_type=SegmentType.RESPONSE
+        )
+    ],
+    default_response_behavior=<span class="string">"all_remaining"</span>
+)
+
+pattern_registry.register_pattern_set(custom_patterns)</code></pre>
+
+            <h2>Pattern Options</h2>
+
+            <h3>Greedy vs Non-Greedy</h3>
+            <p>Control how patterns match content:</p>
+            <pre><code>Pattern(
+    name=<span class="string">"tool"</span>,
+    start_tag=<span class="string">"&lt;tool&gt;"</span>,
+    end_tag=<span class="string">"&lt;/tool&gt;"</span>,
+    segment_type=SegmentType.TOOL,
+    greedy=<span class="keyword">False</span>  <span class="comment"># Non-greedy: stops at first &lt;/tool&gt;</span>
+)</code></pre>
+
+            <h3>Expected Format</h3>
+            <p>For tool patterns, specify expected content format:</p>
+            <ul>
+                <li><code>"json"</code> - Expect JSON, error if invalid</li>
+                <li><code>"line"</code> - Expect line format (Name: x, Arguments: {...})</li>
+                <li><code>"auto"</code> - Try both formats silently</li>
+                <li><code>None</code> - Skip tool parsing</li>
+            </ul>
+
+            <pre><code>Pattern(
+    name=<span class="string">"tool"</span>,
+    start_tag=<span class="string">"```json"</span>,
+    end_tag=<span class="string">"```"</span>,
+    segment_type=SegmentType.TOOL,
+    expected_format=<span class="string">"json"</span>  <span class="comment"># Enforce JSON format</span>
+)</code></pre>
+
+            <h3>Default Response Behavior</h3>
+            <p>Control how unmatched text is handled:</p>
+            <ul>
+                <li><code>"all_remaining"</code> - Text outside patterns becomes response (default)</li>
+                <li><code>"explicit_only"</code> - Only extract explicitly tagged responses</li>
+            </ul>
+
+            <pre><code>PatternSet(
+    name=<span class="string">"strict"</span>,
+    patterns=[...],
+    default_response_behavior=<span class="string">"explicit_only"</span>
+)</code></pre>
+
+            <h2>Streaming Pattern Extraction</h2>
+            <p>Patterns are detected in real-time during LLM streaming:</p>
+
+            <pre><code><span class="keyword">async for</span> event <span class="keyword">in</span> runner.step_stream(user_input):
+    <span class="keyword">if</span> event.type == <span class="string">"pattern_start"</span>:
+        <span class="function">print</span>(<span class="string">f"Detected: {event.pattern_name}"</span>)
+
+    <span class="keyword">elif</span> event.type == <span class="string">"pattern_content"</span>:
+        <span class="comment"># Partial content (if stream_pattern_content=True)</span>
+        <span class="function">print</span>(event.content, end=<span class="string">""</span>)
+
+    <span class="keyword">elif</span> event.type == <span class="string">"pattern_end"</span>:
+        <span class="comment"># Complete content after end tag</span>
+        <span class="function">print</span>(<span class="string">f"\nComplete: {event.full_content}"</span>)</code></pre>
+
+            <h2>Tool Parsing Formats</h2>
+
+            <h3>JSON Format</h3>
+            <pre><code>&lt;tool&gt;
+{
+  <span class="string">"name"</span>: <span class="string">"calculate"</span>,
+  <span class="string">"arguments"</span>: {
+    <span class="string">"a"</span>: 5,
+    <span class="string">"b"</span>: 3,
+    <span class="string">"operation"</span>: <span class="string">"add"</span>
+  },
+  <span class="string">"call_id"</span>: <span class="string">"calc_001"</span>
+}
+&lt;/tool&gt;</code></pre>
+
+            <h3>Line Format</h3>
+            <pre><code>&lt;tool&gt;
+Name: calculate
+Arguments:
+{
+  <span class="string">"a"</span>: 5,
+  <span class="string">"b"</span>: 3
+}
+&lt;/tool&gt;</code></pre>
+
+            <h2>Error Handling</h2>
+            <p>Patterns handle malformed content gracefully:</p>
+
+            <ul>
+                <li><strong>Incomplete patterns:</strong> Missing end tags are detected and reported as <code>ErrorEvent</code> with <code>malformed_pattern</code> type</li>
+                <li><strong>Parse errors:</strong> Invalid JSON or format errors are stored in <code>segments.parse_errors</code></li>
+                <li><strong>Multiple instances:</strong> All occurrences of a pattern are extracted</li>
+            </ul>
+
+            <pre><code>result = runner.step(user_input)
+
+<span class="comment"># Check for parse errors</span>
+<span class="keyword">if</span> result.segments.parse_errors:
+    <span class="keyword">for</span> key, error_text <span class="keyword">in</span> result.segments.parse_errors.items():
+        <span class="function">print</span>(<span class="string">f"Parse error in {key}: {error_text}"</span>)
+
+<span class="comment"># Check for malformed patterns (streaming only)</span>
+<span class="keyword">if</span> result.partial_malformed_patterns:
+    <span class="keyword">for</span> pattern_name, content <span class="keyword">in</span> result.partial_malformed_patterns.items():
+        <span class="function">print</span>(<span class="string">f"Incomplete {pattern_name}: {content}"</span>)</code></pre>
+
+            <h2>Best Practices</h2>
+
+            <ul>
+                <li>Choose pattern tags that your LLM can reliably generate</li>
+                <li>Use descriptive pattern names for debugging</li>
+                <li>Test patterns with your LLM to ensure consistent output</li>
+                <li>Use <code>"auto"</code> format for flexibility during development</li>
+                <li>Set <code>expected_format</code> to enforce strict formats in production</li>
+                <li>Enable <code>stream_pattern_content</code> for real-time UIs</li>
+                <li>Consider using <code>explicit_only</code> for strict response extraction</li>
+            </ul>
+
+            <div class="alert">
+                <strong>Tip:</strong> Include pattern examples in your system prompt to guide the LLM's output format.
+            </div>
+
+            <h2>Next Steps</h2>
+            <ul>
+                <li><a href="tools.html">Tools</a> - How tools are parsed from patterns</li>
+                <li><a href="agent-system.html">Agent System</a> - Configure pattern sets per agent</li>
+                <li><a href="events.html">Events</a> - Pattern detection events</li>
+            </ul>
+        </main>
+    </div>
+</body>
+</html>

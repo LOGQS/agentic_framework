@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agent System - Agentic Framework</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --primary: #3b82f6; --primary-glow: rgba(59, 130, 246, 0.3); --accent: #8b5cf6;
+            --bg-primary: #0a0a0a; --bg-secondary: #1a1a1a; --bg-tertiary: #2a2a2a;
+            --text-primary: #f8f9fa; --text-secondary: #a0a0a0; --text-muted: #6b7280;
+            --border: rgba(255, 255, 255, 0.1); --sidebar-width: 280px;
+            --shadow: 0 8px 32px rgba(0, 0, 0, 0.4); --shadow-lg: 0 20px 60px rgba(0, 0, 0, 0.6);
+        }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif; line-height: 1.7; color: var(--text-primary); background: var(--bg-primary); }
+        .container { display: flex; min-height: 100vh; }
+        .sidebar { width: var(--sidebar-width); background: var(--bg-secondary); border-right: 1px solid var(--border); position: fixed; height: 100vh; overflow-y: auto; padding: 2rem 0; }
+        .sidebar::-webkit-scrollbar { width: 6px; }
+        .sidebar::-webkit-scrollbar-thumb { background: var(--bg-tertiary); border-radius: 10px; }
+        .logo { padding: 0 1.5rem 1.5rem; font-size: 1.75rem; font-weight: 700; background: linear-gradient(135deg, var(--primary), var(--accent)); background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent; letter-spacing: -0.02em; margin-bottom: 1.5rem; }
+        .nav-section { margin-bottom: 2rem; }
+        .nav-section-title { padding: 0.5rem 1.5rem; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.1em; }
+        .nav-link { display: block; padding: 0.75rem 1.5rem; color: var(--text-secondary); text-decoration: none; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); font-size: 0.9rem; position: relative; }
+        .nav-link::before { content: ''; position: absolute; left: 0; top: 50%; transform: translateY(-50%); width: 3px; height: 0; background: linear-gradient(135deg, var(--primary), var(--accent)); border-radius: 0 3px 3px 0; transition: height 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+        .nav-link:hover { background: rgba(59, 130, 246, 0.1); color: var(--text-primary); }
+        .nav-link:hover::before { height: 60%; }
+        .nav-link.active { background: rgba(59, 130, 246, 0.15); color: var(--primary); font-weight: 500; }
+        .nav-link.active::before { height: 60%; }
+        .main-content { margin-left: var(--sidebar-width); flex: 1; padding: 4rem 4rem 4rem 5rem; max-width: 1000px; }
+        h1 { font-size: 3.5rem; margin-bottom: 1rem; font-weight: 700; letter-spacing: -0.03em; background: linear-gradient(135deg, var(--text-primary), var(--text-secondary)); background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        h2 { font-size: 2rem; margin-top: 3rem; margin-bottom: 1.25rem; font-weight: 600; letter-spacing: -0.02em; color: var(--text-primary); padding-bottom: 0.75rem; border-bottom: 1px solid var(--border); }
+        h3 { font-size: 1.5rem; margin-top: 2rem; margin-bottom: 1rem; font-weight: 600; letter-spacing: -0.01em; color: var(--text-primary); }
+        h4 { font-size: 1.2rem; margin-top: 1.5rem; margin-bottom: 0.75rem; font-weight: 600; color: var(--primary); }
+        p { margin-bottom: 1.25rem; color: var(--text-secondary); font-size: 1.05rem; }
+        .subtitle { font-size: 1.3rem; color: var(--text-secondary); margin-bottom: 2.5rem; line-height: 1.6; }
+        code { background: var(--bg-tertiary); padding: 0.3rem 0.6rem; border-radius: 8px; font-family: 'SF Mono', 'Monaco', monospace; font-size: 0.9em; color: var(--primary); border: 1px solid var(--border); }
+        pre { background: var(--bg-secondary); color: var(--text-primary); padding: 2rem; border-radius: 16px; overflow-x: auto; margin: 2rem 0; line-height: 1.6; border: 1px solid var(--border); box-shadow: var(--shadow); }
+        pre code { background: none; color: inherit; padding: 0; border: none; font-size: 0.9rem; }
+        .keyword { color: #ff79c6; } .string { color: #50fa7b; } .function { color: #8be9fd; } .comment { color: var(--text-muted); }
+        ul, ol { margin: 1.5rem 0; padding-left: 2rem; }
+        li { margin: 0.75rem 0; color: var(--text-secondary); }
+        li strong, li code { color: var(--text-primary); }
+        a { color: var(--primary); text-decoration: none; transition: color 0.2s; }
+        a:hover { color: var(--accent); }
+        .config-section { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 16px; padding: 2rem; margin: 1.5rem 0; }
+        .alert { padding: 1.5rem; border-radius: 16px; margin: 2rem 0; background: rgba(59, 130, 246, 0.1); border-left: 4px solid var(--primary); }
+        .alert strong { color: var(--primary); }
+        table { width: 100%; border-collapse: collapse; margin: 2rem 0; }
+        th, td { padding: 1rem; text-align: left; border-bottom: 1px solid var(--border); }
+        th { background: var(--bg-secondary); color: var(--primary); font-weight: 600; }
+        td { color: var(--text-secondary); }
+        td code { font-size: 0.85em; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <aside class="sidebar">
+            <div class="logo">Agentic</div>
+            <nav>
+                <div class="nav-section">
+                    <div class="nav-section-title">Getting Started</div>
+                    <a href="index.html" class="nav-link">Overview</a>
+                    <a href="getting-started.html" class="nav-link">Quick Start</a>
+                    <a href="core-concepts.html" class="nav-link">Core Concepts</a>
+                </div>
+                <div class="nav-section">
+                    <div class="nav-section-title">Core Systems</div>
+                    <a href="agent-system.html" class="nav-link active">Agent System</a>
+                    <a href="tools.html" class="nav-link">Tools</a>
+                    <a href="patterns.html" class="nav-link">Patterns</a>
+                    <a href="logic-flows.html" class="nav-link">Logic Flows</a>
+                </div>
+                <div class="nav-section">
+                    <div class="nav-section-title">Advanced</div>
+                    <a href="multi-agent.html" class="nav-link">Multi-Agent</a>
+                    <a href="events.html" class="nav-link">Events</a>
+                    <a href="resilience.html" class="nav-link">Resilience</a>
+                    <a href="validation.html" class="nav-link">Validation</a>
+                </div>
+                <div class="nav-section">
+                    <div class="nav-section-title">Reference</div>
+                    <a href="api-reference.html" class="nav-link">API Reference</a>
+                </div>
+            </nav>
+        </aside>
+
+        <main class="main-content">
+            <h1>Agent System</h1>
+            <p class="subtitle">Understanding agent configuration, execution, and lifecycle</p>
+
+            <h2>Agent Components</h2>
+            <p>An agent is composed of five main components:</p>
+
+            <div class="config-section">
+                <h4>1. AgentConfig</h4>
+                <p>Configuration object defining agent behavior, tools, patterns, and I/O mapping</p>
+            </div>
+
+            <div class="config-section">
+                <h4>2. ContextManager</h4>
+                <p>Manages versioned state storage with iteration tracking</p>
+            </div>
+
+            <div class="config-section">
+                <h4>3. PatternRegistry</h4>
+                <p>Registry of pattern sets for extracting structured data from LLM output</p>
+            </div>
+
+            <div class="config-section">
+                <h4>4. ToolRegistry</h4>
+                <p>Registry of available tools the agent can execute</p>
+            </div>
+
+            <div class="config-section">
+                <h4>5. LLMProvider</h4>
+                <p>Provider client implementing <code>generate()</code> and <code>stream()</code></p>
+            </div>
+
+            <h2>AgentConfig Reference</h2>
+            <p>Complete configuration options for agents:</p>
+
+            <table>
+                <tr>
+                    <th>Parameter</th>
+                    <th>Type</th>
+                    <th>Description</th>
+                </tr>
+                <tr>
+                    <td><code>agent_id</code></td>
+                    <td>str</td>
+                    <td>Unique identifier for the agent</td>
+                </tr>
+                <tr>
+                    <td><code>tools_allowed</code></td>
+                    <td>list[str]</td>
+                    <td>List of tool names this agent can execute</td>
+                </tr>
+                <tr>
+                    <td><code>tool_name_mapping</code></td>
+                    <td>dict[str, str]</td>
+                    <td>Map public tool names to internal registry names</td>
+                </tr>
+                <tr>
+                    <td><code>validate_tool_arguments</code></td>
+                    <td>bool</td>
+                    <td>Enable argument validation (default: True)</td>
+                </tr>
+                <tr>
+                    <td><code>input_mapping</code></td>
+                    <td>list[dict]</td>
+                    <td>Define how to build prompts from context</td>
+                </tr>
+                <tr>
+                    <td><code>output_mapping</code></td>
+                    <td>list[tuple]</td>
+                    <td>Define how to store agent outputs in context</td>
+                </tr>
+                <tr>
+                    <td><code>pattern_set</code></td>
+                    <td>str</td>
+                    <td>Name of pattern set to use (default: "default")</td>
+                </tr>
+                <tr>
+                    <td><code>auto_increment_iteration</code></td>
+                    <td>bool</td>
+                    <td>Auto-increment iteration counter (default: True)</td>
+                </tr>
+                <tr>
+                    <td><code>processing_mode</code></td>
+                    <td>ProcessingMode</td>
+                    <td>Default tool execution mode (THREAD, PROCESS, ASYNC)</td>
+                </tr>
+                <tr>
+                    <td><code>incremental_context_writes</code></td>
+                    <td>bool</td>
+                    <td>Write partial outputs during streaming (default: False)</td>
+                </tr>
+                <tr>
+                    <td><code>stream_pattern_content</code></td>
+                    <td>bool</td>
+                    <td>Emit pattern content before end tag (default: False)</td>
+                </tr>
+                <tr>
+                    <td><code>concurrent_tool_execution</code></td>
+                    <td>bool</td>
+                    <td>Execute tools concurrently during LLM streaming (default: False)</td>
+                </tr>
+                <tr>
+                    <td><code>on_tool_detected</code></td>
+                    <td>Callable</td>
+                    <td>Callback for tool verification (accept/reject)</td>
+                </tr>
+                <tr>
+                    <td><code>tool_verification_timeout</code></td>
+                    <td>float | None</td>
+                    <td>Timeout for verification callback in seconds</td>
+                </tr>
+                <tr>
+                    <td><code>tool_verification_on_timeout</code></td>
+                    <td>str</td>
+                    <td>"accept" or "reject" if verification times out</td>
+                </tr>
+                <tr>
+                    <td><code>prompt_builder</code></td>
+                    <td>Callable</td>
+                    <td>Custom prompt building function</td>
+                </tr>
+            </table>
+
+            <h2>Input Mapping</h2>
+            <p>Define how prompts are built from context. Each entry specifies a context key and order:</p>
+
+            <pre><code>input_mapping=[
+    {
+        <span class="string">"context_key"</span>: <span class="string">"literal:You are a helpful AI assistant."</span>,
+        <span class="string">"role"</span>: <span class="string">"system"</span>,
+        <span class="string">"order"</span>: 0
+    },
+    {
+        <span class="string">"context_key"</span>: <span class="string">"conversation_history"</span>,
+        <span class="string">"role"</span>: <span class="string">"user"</span>,
+        <span class="string">"order"</span>: 1
+    },
+    {
+        <span class="string">"context_key"</span>: <span class="string">"tool_results"</span>,
+        <span class="string">"role"</span>: <span class="string">"assistant"</span>,
+        <span class="string">"order"</span>: 2
+    }
+]</code></pre>
+
+            <div class="alert">
+                <strong>Literal Values:</strong> Prefix with <code>"literal:"</code> to use static content instead of context lookup.
+            </div>
+
+            <h2>Output Mapping</h2>
+            <p>Define how agent outputs are stored in context:</p>
+
+            <pre><code>output_mapping=[
+    (<span class="string">"agent_output"</span>, <span class="string">"set_latest"</span>),      <span class="comment"># Raw output</span>
+    (<span class="string">"agent_response"</span>, <span class="string">"set_response"</span>),  <span class="comment"># Extracted response segment</span>
+    (<span class="string">"reasoning_log"</span>, <span class="string">"set_reasoning"</span>),  <span class="comment"># Reasoning segments</span>
+    (<span class="string">"tool_results"</span>, <span class="string">"set_tools"</span>),        <span class="comment"># Tool execution results</span>
+    (<span class="string">"conversation"</span>, <span class="string">"append_version"</span>)   <span class="comment"># Append to existing</span>
+]</code></pre>
+
+            <h3>Operation Types</h3>
+            <ul>
+                <li><code>set_latest</code> - Store raw LLM output</li>
+                <li><code>set_response</code> - Store extracted response segment</li>
+                <li><code>set_reasoning</code> - Store reasoning segments</li>
+                <li><code>set_tools</code> - Store tool execution results as JSON</li>
+                <li><code>append_version</code> - Append to existing context value</li>
+            </ul>
+
+            <h2>Tool Verification</h2>
+            <p>Enable human-in-the-loop or programmatic tool approval:</p>
+
+            <pre><code><span class="keyword">def</span> <span class="function">verify_tool</span>(tool_call: ToolCall) -> bool:
+    <span class="comment"># Inspect tool call before execution</span>
+    <span class="function">print</span>(<span class="string">f"Tool: {tool_call.name}"</span>)
+    <span class="function">print</span>(<span class="string">f"Args: {tool_call.arguments}"</span>)
+
+    <span class="comment"># Return True to accept, False to reject</span>
+    <span class="keyword">if</span> tool_call.name == <span class="string">"delete_file"</span>:
+        <span class="keyword">return</span> <span class="function">input</span>(<span class="string">"Allow deletion? (y/n): "</span>) == <span class="string">"y"</span>
+
+    <span class="keyword">return</span> <span class="keyword">True</span>
+
+config = AgentConfig(
+    agent_id=<span class="string">"safe_agent"</span>,
+    tools_allowed=[<span class="string">"search"</span>, <span class="string">"delete_file"</span>],
+    on_tool_detected=verify_tool,
+    tool_verification_timeout=30.0,
+    tool_verification_on_timeout=<span class="string">"reject"</span>
+)</code></pre>
+
+            <h2>Custom Prompt Builder</h2>
+            <p>For advanced prompt construction, provide a custom builder:</p>
+
+            <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> PromptObject
+
+<span class="keyword">def</span> <span class="function">custom_prompt_builder</span>(context, config, user_input):
+    <span class="comment"># Build custom prompt structure</span>
+    system = <span class="string">"You are a specialized assistant."</span>
+
+    messages = []
+
+    <span class="comment"># Add conversation history</span>
+    history = context.get(<span class="string">"history"</span>)
+    <span class="keyword">if</span> history:
+        messages.append({
+            <span class="string">"role"</span>: <span class="string">"assistant"</span>,
+            <span class="string">"content"</span>: history
+        })
+
+    <span class="comment"># Add user input</span>
+    <span class="keyword">if</span> user_input:
+        messages.append({
+            <span class="string">"role"</span>: <span class="string">"user"</span>,
+            <span class="string">"content"</span>: user_input
+        })
+
+    <span class="keyword">return</span> PromptObject(
+        system=system,
+        messages=messages,
+        metadata={<span class="string">"temperature"</span>: 0.7}
+    )
+
+config = AgentConfig(
+    agent_id=<span class="string">"custom_agent"</span>,
+    prompt_builder=custom_prompt_builder
+)</code></pre>
+
+            <h2>Agent Execution</h2>
+
+            <h3>Single Step (Batch)</h3>
+            <pre><code>result = runner.step(<span class="string">"What's the weather?"</span>)
+<span class="function">print</span>(result.segments.response)</code></pre>
+
+            <h3>Streaming</h3>
+            <pre><code><span class="keyword">async for</span> event <span class="keyword">in</span> runner.step_stream(<span class="string">"What's the weather?"</span>):
+    <span class="keyword">if</span> event.type == <span class="string">"llm_chunk"</span>:
+        <span class="function">print</span>(event.chunk, end=<span class="string">""</span>)</code></pre>
+
+            <h3>Result Structure</h3>
+            <pre><code><span class="comment"># AgentStepResult</span>
+result.status           <span class="comment"># AgentStatus enum</span>
+result.raw_output       <span class="comment"># Full LLM output</span>
+result.segments         <span class="comment"># ExtractedSegments</span>
+result.tool_results     <span class="comment"># List[ToolResult]</span>
+result.iteration        <span class="comment"># Iteration number</span>
+result.tool_decisions   <span class="comment"># Tool verification details</span></code></pre>
+
+            <h2>Status Values</h2>
+            <ul>
+                <li><code>OK</code> - Execution successful</li>
+                <li><code>WAITING_FOR_VERIFICATION</code> - Tool awaiting approval</li>
+                <li><code>WAITING_FOR_TOOL</code> - Tool execution in progress</li>
+                <li><code>TOOL_EXECUTED</code> - Tools executed successfully</li>
+                <li><code>TOOLS_REJECTED</code> - All tools rejected by verification</li>
+                <li><code>VALIDATION_ERROR</code> - Tool argument validation failed</li>
+                <li><code>DONE</code> - Agent completed with no further action</li>
+                <li><code>ERROR</code> - Execution error occurred</li>
+            </ul>
+
+            <h2>Next Steps</h2>
+            <ul>
+                <li><a href="tools.html">Tools</a> - Creating and configuring tools</li>
+                <li><a href="patterns.html">Patterns</a> - Pattern extraction system</li>
+                <li><a href="logic-flows.html">Logic Flows</a> - Multi-step agent loops</li>
+                <li><a href="events.html">Events</a> - Working with the event stream</li>
+            </ul>
+        </main>
+    </div>
+</body>
+</html>
