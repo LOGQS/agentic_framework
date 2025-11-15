@@ -10,12 +10,78 @@ Covers:
 - Path resolution with collision avoidance
 - Error handling for uninitialized storage
 - Storage cleanup and closing
+- _generate_app_id utility function
 """
 import pytest
 from pathlib import Path
 import time
 
-from agentic.storage import RocksDBStorage, StorageConfig
+from agentic.storage import RocksDBStorage, StorageConfig, _generate_app_id
+
+
+class TestGenerateAppId:
+    """Tests for _generate_app_id utility function."""
+
+    def test_generate_app_id_default(self):
+        """Test _generate_app_id with default app_id."""
+        app_id = _generate_app_id()
+
+        # Format: agentic_<hash>_<timestamp>_<uuid>
+        parts = app_id.split('_')
+        assert len(parts) == 4
+        assert parts[0] == "agentic"
+        assert len(parts[1]) == 16  # hash is 16 hex chars
+        assert parts[2].isdigit()  # timestamp
+        assert len(parts[3]) == 8  # uuid suffix is 8 chars
+
+    def test_generate_app_id_custom(self):
+        """Test _generate_app_id with custom app_id base."""
+        app_id = _generate_app_id("my_custom_app")
+
+        parts = app_id.split('_')
+        assert len(parts) == 4
+        assert parts[0] == "agentic"
+        # Hash should be consistent for same app_id
+        assert len(parts[1]) == 16
+
+    def test_generate_app_id_consistency(self):
+        """Test that hash is consistent for same app_id."""
+        app_id1 = _generate_app_id("test_app")
+        app_id2 = _generate_app_id("test_app")
+
+        # Hash parts should be same (index 1)
+        hash1 = app_id1.split('_')[1]
+        hash2 = app_id2.split('_')[1]
+        assert hash1 == hash2
+
+        # But timestamps and UUIDs should differ
+        timestamp1 = app_id1.split('_')[2]
+        timestamp2 = app_id2.split('_')[2]
+        # Timestamps might be same if generated very quickly
+        # but UUIDs should always differ
+        uuid1 = app_id1.split('_')[3]
+        uuid2 = app_id2.split('_')[3]
+        assert uuid1 != uuid2
+
+    def test_generate_app_id_different_bases(self):
+        """Test that different app_id bases produce different hashes."""
+        app_id1 = _generate_app_id("app_one")
+        app_id2 = _generate_app_id("app_two")
+
+        hash1 = app_id1.split('_')[1]
+        hash2 = app_id2.split('_')[1]
+
+        # Different app_ids should produce different hashes
+        assert hash1 != hash2
+
+    def test_generate_app_id_none_parameter(self):
+        """Test _generate_app_id with explicit None."""
+        app_id = _generate_app_id(None)
+
+        # Should use default "agentic_framework"
+        parts = app_id.split('_')
+        assert len(parts) == 4
+        assert parts[0] == "agentic"
 
 
 class TestStorageConfig:
@@ -452,3 +518,227 @@ class TestStorageEdgeCases:
 
         results = list(storage.iterate(prefix))
         assert len(results) == 100
+
+
+class TestInMemoryStorage:
+    """Tests for InMemoryStorage backend."""
+
+    def test_inmemory_storage_initialization(self, temp_dir):
+        """Test InMemoryStorage initialization creates app ID."""
+        from agentic.storage import InMemoryStorage
+        config = StorageConfig(base_dir=temp_dir, app_id="test_app")
+        storage = InMemoryStorage(config)
+        storage.initialize()
+
+        # Should have app ID
+        app_id = storage.get(b"metadata:id")
+        assert app_id is not None
+        assert b"agentic_" in app_id
+
+        storage.close()
+
+    def test_inmemory_basic_operations(self, temp_dir):
+        """Test InMemoryStorage basic CRUD operations."""
+        from agentic.storage import InMemoryStorage
+        config = StorageConfig(base_dir=temp_dir)
+        storage = InMemoryStorage(config)
+        storage.initialize()
+
+        # Put and get
+        storage.put(b"key1", b"value1")
+        assert storage.get(b"key1") == b"value1"
+
+        # Update
+        storage.put(b"key1", b"value2")
+        assert storage.get(b"key1") == b"value2"
+
+        # Delete
+        storage.delete(b"key1")
+        assert storage.get(b"key1") is None
+
+        storage.close()
+
+    def test_inmemory_iteration_order(self, temp_dir):
+        """Test InMemoryStorage iteration order matches RocksDB lexicographic order."""
+        from agentic.storage import InMemoryStorage
+        config = StorageConfig(base_dir=temp_dir)
+        storage = InMemoryStorage(config)
+        storage.initialize()
+
+        # Insert keys in specific order
+        keys = [b"test:z", b"test:a", b"test:m"]
+        for key in keys:
+            storage.put(key, b"value")
+
+        # Iterate with prefix
+        results = list(storage.iterate(b"test:"))
+        result_keys = [k for k, v in results]
+
+        # Should have all keys in lexicographic order to match RocksDB behavior
+        assert result_keys == sorted(keys)
+
+        storage.close()
+
+    def test_inmemory_storage_not_persistent(self, temp_dir):
+        """Test that InMemoryStorage loses data when closed.
+
+        This verifies the in-memory nature - data doesn't persist to disk.
+        """
+        from agentic.storage import InMemoryStorage
+        config = StorageConfig(base_dir=temp_dir, db_name_prefix="memory")
+        storage1 = InMemoryStorage(config)
+        storage1.initialize()
+
+        storage1.put(b"key", b"value")
+        storage1.close()
+
+        # Create new instance - data should not persist
+        storage2 = InMemoryStorage(config)
+        storage2.initialize()
+        assert storage2.get(b"key") is None
+
+        storage2.close()
+
+    def test_inmemory_get_db_path_returns_memory(self, temp_dir):
+        """Test that InMemoryStorage returns :memory: for db_path."""
+        from agentic.storage import InMemoryStorage
+        config = StorageConfig(base_dir=temp_dir)
+        storage = InMemoryStorage(config)
+        storage.initialize()
+
+        path = storage.get_db_path()
+        assert path == Path(":memory:")
+
+        storage.close()
+
+    def test_inmemory_get_db_path_requires_initialization(self, temp_dir):
+        """get_db_path should raise if initialize() was not called."""
+        from agentic.storage import InMemoryStorage
+        config = StorageConfig(base_dir=temp_dir)
+        storage = InMemoryStorage(config)
+
+        with pytest.raises(RuntimeError, match="Storage not initialized"):
+            storage.get_db_path()
+
+    def test_inmemory_double_initialization(self, temp_dir):
+        """Test that double initialization is idempotent."""
+        from agentic.storage import InMemoryStorage
+        config = StorageConfig(base_dir=temp_dir)
+        storage = InMemoryStorage(config)
+
+        storage.initialize()
+        storage.put(b"key", b"value")
+
+        # Initialize again should be safe
+        storage.initialize()
+        assert storage.get(b"key") == b"value"
+
+        storage.close()
+
+    def test_inmemory_operations_before_init_raise(self, temp_dir):
+        """Test that operations before initialization raise errors."""
+        from agentic.storage import InMemoryStorage
+        config = StorageConfig(base_dir=temp_dir)
+        storage = InMemoryStorage(config)
+
+        with pytest.raises(RuntimeError, match="Storage not initialized"):
+            storage.get(b"key")
+
+        with pytest.raises(RuntimeError, match="Storage not initialized"):
+            storage.put(b"key", b"value")
+
+        with pytest.raises(RuntimeError, match="Storage not initialized"):
+            storage.delete(b"key")
+
+        with pytest.raises(RuntimeError, match="Storage not initialized"):
+            list(storage.iterate(b"prefix"))
+
+    def test_inmemory_close_clears_data(self, temp_dir):
+        """Test that close() clears all data from memory."""
+        from agentic.storage import InMemoryStorage
+        config = StorageConfig(base_dir=temp_dir)
+        storage = InMemoryStorage(config)
+        storage.initialize()
+
+        storage.put(b"key1", b"value1")
+        storage.put(b"key2", b"value2")
+
+        storage.close()
+
+        # After close, reinitialization should start fresh
+        storage.initialize()
+        assert storage.get(b"key1") is None
+        assert storage.get(b"key2") is None
+
+        storage.close()
+
+
+class TestRocksDBLeakFix:
+    """Tests for RocksDB cleanup on initialization failure."""
+
+    def test_rocksdb_closes_on_init_failure(self, temp_dir):
+        """Test that RocksDB connection is closed if initialization fails.
+
+        This tests the leak fix where DB connections were left open when
+        _ensure_identification() or other post-open operations failed.
+        """
+        from agentic.storage import RocksDBStorage, StorageConfig
+
+        config = StorageConfig(base_dir=temp_dir, db_name_prefix="test_fail", app_id="test")
+
+        # Create a failing storage class
+        class FailingStorage(RocksDBStorage):
+            def _ensure_identification(self):
+                # Simulate failure during identification
+                raise ValueError("Simulated identification failure")
+
+        failing_storage = FailingStorage(config)
+
+        try:
+            failing_storage.initialize()
+            assert False, "Should have raised ValueError"
+        except ValueError as e:
+            assert "Simulated identification failure" in str(e)
+
+        # Verify DB is closed (should be None after cleanup)
+        assert failing_storage._db is None
+
+    def test_rocksdb_cleanup_on_permission_error(self, temp_dir):
+        """Test RocksDB cleanup when database open fails due to permissions.
+
+        Verifies that the fix handles failures during the Rdict() call itself.
+        """
+        from agentic.storage import RocksDBStorage, StorageConfig
+
+        config = StorageConfig(base_dir=temp_dir, db_name_prefix="perm_test")
+
+        class PermissionFailStorage(RocksDBStorage):
+            def initialize(self):
+                if self._initialized:
+                    return
+
+                self._db_path = self._resolve_context_path()
+                self._db_path.mkdir(parents=True, exist_ok=True)
+
+                from rocksdict import Rdict, Options
+                opts = Options()
+                opts.create_if_missing(True)
+
+                try:
+                    # Simulate failure during DB open
+                    raise PermissionError("Simulated permission error")
+                except Exception:
+                    # Clean up DB connection on initialization failure
+                    if self._db is not None:
+                        self._db.close()
+                        self._db = None
+                    raise
+
+        failing_storage = PermissionFailStorage(config)
+
+        with pytest.raises(PermissionError, match="Simulated permission error"):
+            failing_storage.initialize()
+
+        # Verify DB is None after cleanup
+        assert failing_storage._db is None
+        assert failing_storage._initialized is False

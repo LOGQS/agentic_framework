@@ -5,13 +5,16 @@ A framework for building LLM agents with versioned context, persistent storage, 
 ## Features
 
 - **Streaming-First**: Real-time event streams for LLM generation, pattern detection, and tool execution
-- **16 Event Types**: Complete observability across LLM, tools, patterns, validation, retry, rate limiting, and context health
+- **17 Event Types**: Complete observability across LLM, tools, patterns, validation, retry, rate limiting, and context health
+- **Structured Logging**: Built-in logger with contextual metadata for debugging and monitoring
 - **Persistent Context**: Versioned key-value store backed by RocksDB with automatic timestamps and iteration tracking
 - **Pattern Extraction**: Regex-based extraction with streaming support, incremental detection, and malformed pattern handling
 - **Multi-Mode Tools**: Execute tools in PROCESS, THREAD, or ASYNC modes with timeout handling and streaming output
 - **Validation System**: Extensible validation registry supporting simple validators, JSON Schema, or custom formats
 - **Resilience**: Retry logic with exponential backoff and token bucket rate limiting
+- **Tool Verification**: Human-in-the-loop tool approval with timeout handling and rejection tracking
 - **Multi-Agent Patterns**: Chain, Supervisor-Worker, Parallel, and Debate patterns for orchestrating multiple agents
+- **Flexible Storage**: RocksDB for persistence or in-memory storage for testing and ephemeral use
 - **Flexible Logic Flows**: Conditional loops with pattern-based, regex-based, or context-based conditions
 - **Type-Safe**: Full type hints throughout
 
@@ -27,7 +30,7 @@ Requires Python 3.9+ and rocksdict >= 0.3.0
 
 ```python
 from agentic import (
-    StorageConfig, RocksDBStorage, IterationManager, ContextManager,
+    StorageConfig, RocksDBStorage, InMemoryStorage, IterationManager, ContextManager,
     PatternRegistry, create_default_pattern_set,
     ToolRegistry, create_tool,
     AgentConfig, Agent, AgentRunner,
@@ -35,9 +38,14 @@ from agentic import (
 )
 
 # Initialize storage and context
+# Option 1: RocksDB for persistent storage
 config = StorageConfig(base_dir="./context", db_name_prefix="my_agent")
 storage = RocksDBStorage(config)
 storage.initialize()
+# Option 2: In-memory storage for testing or ephemeral use
+# storage = InMemoryStorage()
+# storage.initialize()
+
 iteration = IterationManager(storage)
 context = ContextManager(storage, iteration)
 
@@ -118,23 +126,27 @@ asyncio.run(stream_example())
 agentic/
 ├── core.py         # Enums (ProcessingMode, SegmentType, AgentStatus) & data classes
 ├── validation.py   # Format-agnostic validation system with extensible validators
-├── events.py       # 16 event types (LLM, tools, patterns, retry, rate limit, health)
-├── storage.py      # RocksDBStorage with automatic path resolution and DB identification
+├── events.py       # 17 event types (LLM, tools, patterns, retry, rate limit, health)
+├── storage.py      # RocksDBStorage & InMemoryStorage with automatic path resolution
 ├── context.py      # IterationManager & ContextManager with versioning and history
 ├── patterns.py     # PatternExtractor (batch) & StreamingPatternExtractor (incremental)
 ├── tools.py        # Tool execution with multi-mode support, timeouts, and streaming
 ├── agent.py        # Agent & AgentRunner with dual-mode execution (step/step_stream)
 ├── logic.py        # LogicRunner for conditional loops with context health monitoring
 ├── resilience.py   # Retry logic with backoff and token bucket rate limiting
-└── multi_agent.py  # Multi-agent orchestration patterns (Chain, Supervisor, Parallel, Debate)
+├── multi_agent.py  # Multi-agent orchestration patterns (Chain, Supervisor, Parallel, Debate)
+└── logging_util.py # Structured logging with contextual metadata for debugging
 ```
 
 ### Key Components
 
 **Storage** (`storage.py`):
-- RocksDB backend via `rocksdict`
-- Automatic DB ID generation: `agentic_<hash>_<timestamp>_<uuid>`
-- CRUD operations: `get()`, `put()`, `delete()`, `iterate()`
+- **RocksDBStorage**: Persistent backend via `rocksdict`
+  - Automatic DB ID generation: `agentic_<hash>_<timestamp>_<uuid>`
+  - CRUD operations: `get()`, `put()`, `delete()`, `iterate()`
+- **InMemoryStorage**: Ephemeral storage for testing and development
+  - Same interface as RocksDBStorage for drop-in compatibility
+  - Faster performance, no disk I/O
 
 **Context** (`context.py`):
 - `IterationManager`: Global iteration counter with `get()`, `next()`, `register_event()`
@@ -162,9 +174,11 @@ agentic/
 - `LLMProvider`: Protocol defining `generate()` and `stream()` methods accepting `PromptType` (Any)
 - `Agent`: Container for config, context, patterns, tools, provider
 - `AgentRunner`: `step()` (batch) and `step_stream()` (streaming)
-- `AgentConfig`: Configuration with options including `incremental_context_writes`, `stream_pattern_content`, `on_tool_detected`, `concurrent_tool_execution`, `max_partial_buffer_size`, `prompt_builder`
+- `AgentConfig`: Configuration with options including `incremental_context_writes`, `stream_pattern_content`, `on_tool_detected`, `concurrent_tool_execution`, `max_partial_buffer_size`, `prompt_builder`, `tool_verification_timeout`, `tool_verification_on_timeout`
 - `PromptObject`: Structured prompt with `system`, `messages`, and `metadata` fields
 - `create_message_prompt_builder()`: Reference implementation for building PromptObject from input_mapping
+- `AgentStepResult`: Contains `tool_decisions` list tracking complete tool lifecycle (verification + execution)
+- `ToolExecutionDecision`: Rich decision object with `accepted`, `rejection_reason`, `verification_duration_ms`, `executed`, and `result` fields
 
 **Logic** (`logic.py`):
 - `LogicRunner`: Conditional loops with `run()` (batch) and `run_stream()` (streaming)
@@ -180,7 +194,13 @@ agentic/
 - Support for JSON Schema, XML Schema, Protocol Buffers, or custom validators
 
 **Events** (`events.py`):
-16 event types: `LLMTokenEvent`, `LLMCompleteEvent`, `PatternStartEvent`, `PatternContentEvent`, `PatternEndEvent`, `StatusEvent`, `ToolStartEvent`, `ToolOutputEvent`, `ToolEndEvent`, `ToolValidationEvent`, `ContextWriteEvent`, `ErrorEvent`, `StepCompleteEvent`, `RetryEvent`, `RateLimitEvent`, `ContextHealthEvent`
+17 event types: `LLMTokenEvent`, `LLMCompleteEvent`, `PatternStartEvent`, `PatternContentEvent`, `PatternEndEvent`, `StatusEvent`, `ToolStartEvent`, `ToolDecisionEvent`, `ToolOutputEvent`, `ToolEndEvent`, `ToolValidationEvent`, `ContextWriteEvent`, `ErrorEvent`, `StepCompleteEvent`, `RetryEvent`, `RateLimitEvent`, `ContextHealthEvent`
+
+**Logging** (`logging_util.py`):
+- Structured logger with contextual metadata
+- Integration with Python's standard logging module
+- Automatic context enrichment (agent_id, iteration, step_id, etc.)
+- Supports JSON-formatted output for log aggregation systems
 
 **Resilience** (`resilience.py`):
 - `RetryConfig`: Exponential/linear/constant backoff with jitter and configurable retry exceptions
@@ -447,6 +467,41 @@ async for event in debate.converge("Should we use microservices?"):
         print(f"Debate: {event.message}")
 ```
 
+### Structured Logging
+
+The framework includes built-in structured logging for debugging and monitoring.
+
+```python
+from agentic.logging_util import get_logger
+import logging
+
+# Configure logging (optional - framework uses default Python logging)
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+
+# The framework automatically logs key events with rich context
+# Log entries include: agent_id, iteration, step_id, tool_name, etc.
+
+# Example log output:
+# 2025-11-15 10:30:15 - agentic.agent - DEBUG - agent.step.start - {"agent_id": "assistant", "iteration": 1, "step_id": "abc123"}
+# 2025-11-15 10:30:16 - agentic.agent - DEBUG - agent.llm.complete - {"agent_id": "assistant", "iteration": 1, "output_length": 250, "tools_detected": 1}
+# 2025-11-15 10:30:16 - agentic.agent - DEBUG - tool.verification.start - {"tool_name": "search_web", "call_id": "def456"}
+# 2025-11-15 10:30:18 - agentic.agent - DEBUG - agent.step.complete - {"agent_id": "assistant", "status": "TOOL_EXECUTED", "tools_executed": 1}
+
+# Use the logger in custom tools or extensions
+logger = get_logger(__name__)
+
+def my_custom_tool(inputs: dict) -> dict:
+    logger.info("tool.custom.start", extra={
+        "query": inputs.get("query"),
+        "user_id": inputs.get("user_id")
+    })
+    # Your tool logic
+    return {"result": "success"}
+```
+
 ### Context Health Monitoring
 
 ```python
@@ -483,10 +538,12 @@ async for event in logic.run_stream("Your task"):
         print(f"Action: {event.recommended_action}")
 ```
 
-### Tool Approval Callback
+### Tool Verification and Approval
+
+The framework provides comprehensive tool verification with timeout handling and decision tracking.
 
 ```python
-from agentic import ToolCall
+from agentic import ToolCall, ToolDecisionEvent, AgentStatus, ToolExecutionDecision
 
 def approve_tool(tool_call: ToolCall) -> bool:
     """Callback for human-in-the-loop tool approval."""
@@ -497,8 +554,44 @@ agent_config = AgentConfig(
     agent_id="assistant",
     tools_allowed=["search_web", "calculate"],
     on_tool_detected=approve_tool,  # None = auto-approve all
+    tool_verification_timeout=30.0,  # Timeout in seconds for verification callback
+    tool_verification_on_timeout="reject",  # "accept" or "reject" - action when timeout occurs
     concurrent_tool_execution=False  # Set to True to execute tools during LLM streaming
 )
+
+# Streaming: Listen for tool decision events in real-time
+async for event in runner.step_stream("Your prompt"):
+    if isinstance(event, ToolDecisionEvent):
+        print(f"Tool: {event.tool_name}")
+        print(f"Accepted: {event.accepted}")
+        if not event.accepted:
+            print(f"Rejection reason: {event.rejection_reason}")
+        print(f"Verification took: {event.verification_duration_ms}ms")
+    elif isinstance(event, StatusEvent):
+        if event.status == AgentStatus.WAITING_FOR_VERIFICATION:
+            print(f"Waiting for approval: {event.message}")
+        elif event.status == AgentStatus.TOOLS_REJECTED:
+            print("All tools were rejected")
+
+# Batch: Access tool decisions from result
+result = runner.step("Your prompt")
+
+# Inspect all tool decisions (both accepted and rejected)
+for decision in result.tool_decisions:
+    print(f"Tool: {decision.tool_call.name}")
+    print(f"  Accepted: {decision.accepted}")
+    print(f"  Verification required: {decision.verification_required}")
+    print(f"  Verification duration: {decision.verification_duration_ms}ms")
+
+    if not decision.accepted:
+        print(f"  Rejection reason: {decision.rejection_reason}")
+
+    if decision.executed and decision.result:
+        print(f"  Execution success: {decision.result.success}")
+        if decision.result.success:
+            print(f"  Output: {decision.result.output}")
+        else:
+            print(f"  Error: {decision.result.error_message}")
 
 # Concurrent tool execution
 # When enabled, tools are executed as soon as pattern is detected during LLM streaming

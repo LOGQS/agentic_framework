@@ -10,6 +10,7 @@ Covers:
 - MockLLMProvider
 - Event emission during streaming
 """
+import logging
 import pytest
 
 from agentic.agent import Agent, AgentRunner
@@ -24,7 +25,8 @@ from agentic.events import (
     PatternContentEvent,
     PatternEndEvent,
     ContextWriteEvent,
-    LLMTokenEvent
+    LLMTokenEvent,
+    StatusEvent
 )
 
 
@@ -199,6 +201,35 @@ class TestAgentRunnerStreaming:
 
         # Should have tool start and end events
         assert len(tool_events) >= 2
+
+    async def test_agent_step_stream_tool_rejection_reason(
+        self, agent_runner, mock_llm_provider, agent, caplog
+    ):
+        """Callback rejection should emit structured status and log entry."""
+        config = agent.get_config()
+        config.on_tool_detected = lambda tc: False
+        config.tools_allowed = ["echo"]
+        agent.set_config(config)
+
+        mock_llm_provider.set_response('<tool>{"name": "echo", "arguments": {}}</tool>')
+
+        caplog.set_level(logging.DEBUG, logger="agentic.agent")
+        agent_logger = logging.getLogger("agentic.agent")
+        agent_logger.addHandler(caplog.handler)
+        status_messages = []
+
+        async for event in agent_runner.step_stream():
+            if isinstance(event, StatusEvent):
+                status_messages.append(event.message or "")
+
+        assert any("rejected" in message.lower() for message in status_messages)
+        assert any(
+            record.message == "agent.tool.rejected"
+            for record in caplog.records
+            if record.name == "agentic.agent"
+        )
+
+        agent_logger.removeHandler(caplog.handler)
 
 
 class TestAgentContextUpdates:
@@ -523,7 +554,8 @@ class TestAgentOnToolDetectedCallback:
         """Test callback exception handling.
 
         When the callback raises an exception, it should be caught and
-        the tool should not execute.
+        the tool should not execute. The tool is rejected rather than causing
+        an error event.
         """
         def callback(tool_call):
             raise RuntimeError("Callback error")
@@ -534,20 +566,19 @@ class TestAgentOnToolDetectedCallback:
 
         mock_llm_provider.set_response('<tool>{"name": "echo", "arguments": {"message": "test"}}</tool>')
 
-        error_events = []
         final_result = None
         async for event in agent_runner.step_stream():
-            if isinstance(event, ErrorEvent):
-                error_events.append(event)
             if isinstance(event, StepCompleteEvent):
                 final_result = event.result
 
-        # Should have error event from callback
-        assert len(error_events) > 0
-        assert any("callback failed" in e.error_message for e in error_events)
-
         # Tool should NOT have executed due to callback error
         assert len(final_result.tool_results) == 0
+
+        # Should have tool decision showing rejection due to exception
+        assert len(final_result.tool_decisions) == 1
+        decision = final_result.tool_decisions[0]
+        assert decision.accepted is False
+        assert "Callback exception" in decision.rejection_reason
 
     @pytest.mark.asyncio
     async def test_on_tool_detected_callback_with_concurrent_execution(self, agent, agent_runner, mock_llm_provider):
@@ -584,6 +615,71 @@ class TestAgentOnToolDetectedCallback:
         # Only echo should have executed
         assert len(final_result.tool_results) == 1
         assert final_result.tool_results[0].name == "echo"
+
+    @pytest.mark.asyncio
+    async def test_verification_status_emitted(self, agent, agent_runner, mock_llm_provider):
+        """Test WAITING_FOR_VERIFICATION status is emitted when on_tool_detected is set."""
+        def callback(tool_call):
+            return True
+
+        config = agent.get_config()
+        config.on_tool_detected = callback
+        agent.set_config(config)
+
+        mock_llm_provider.set_response('<tool>{"name": "echo", "arguments": {"message": "test"}}</tool>')
+
+        status_events = []
+        async for event in agent_runner.step_stream():
+            if isinstance(event, StatusEvent):
+                status_events.append(event)
+
+        verification_statuses = [e for e in status_events if e.status == AgentStatus.WAITING_FOR_VERIFICATION]
+        assert len(verification_statuses) > 0
+        assert "verification" in verification_statuses[0].message.lower()
+
+    @pytest.mark.asyncio
+    async def test_tool_matching_with_call_ids(self, agent, agent_runner, mock_llm_provider):
+        """Test tool matching works correctly with call_ids."""
+        config = agent.get_config()
+        agent.set_config(config)
+
+        mock_llm_provider.set_response(
+            '<tool>{"name": "echo", "arguments": {"message": "1"}}</tool>'
+            '<tool>{"name": "echo", "arguments": {"message": "2"}}</tool>'
+        )
+
+        final_result = None
+        async for event in agent_runner.step_stream():
+            if isinstance(event, StepCompleteEvent):
+                final_result = event.result
+
+        assert len(final_result.tool_results) == 2
+        assert len(final_result.tool_decisions) == 2
+
+        for decision in final_result.tool_decisions:
+            assert decision.executed is True
+            assert decision.result is not None
+
+    @pytest.mark.asyncio
+    async def test_tool_matching_without_call_ids(self, agent, agent_runner, mock_llm_provider):
+        """Test tool matching works correctly without call_ids (legacy mode)."""
+        config = agent.get_config()
+        agent.set_config(config)
+
+        mock_llm_provider.set_response('<tool>{"name": "echo", "arguments": {"message": "test"}}</tool>')
+
+        final_result = None
+        async for event in agent_runner.step_stream():
+            if isinstance(event, StepCompleteEvent):
+                final_result = event.result
+
+        assert len(final_result.tool_results) == 1
+        assert len(final_result.tool_decisions) == 1
+
+        decision = final_result.tool_decisions[0]
+        assert decision.executed is True
+        assert decision.result is not None
+        assert decision.result.name == "echo"
 
 
 class TestAgentOutputMapping:
@@ -1250,3 +1346,214 @@ class TestToolOutputAggregation:
 
         assert final_result.status == AgentStatus.ERROR
         assert "not found in registry" in final_result.error_message
+
+
+class TestAgentHelperMethods:
+    """Tests for extracted helper methods in AgentRunner."""
+
+    @pytest.mark.asyncio
+    async def test_should_execute_tool_with_callback_true(self, agent_runner):
+        """Test _should_execute_tool when callback returns True."""
+        from agentic.core import ToolCall, AgentConfig
+
+        tool_call = ToolCall(
+            name="test_tool",
+            arguments={},
+            raw_segment="",
+            iteration=0,
+            call_id="test_id"
+        )
+
+        def callback(tc):
+            return True
+
+        config = AgentConfig(agent_id="test", on_tool_detected=callback)
+
+        decision = await agent_runner._should_execute_tool(
+            tool_call, config, "step_123"
+        )
+
+        assert decision.accepted is True
+        assert decision.rejection_reason is None
+        assert decision.verification_required is True
+
+    @pytest.mark.asyncio
+    async def test_should_execute_tool_with_callback_reject(self, agent_runner):
+        """Test _should_execute_tool when callback returns False.
+
+        When the callback rejects execution (returns False), should return
+        False with appropriate rejection reason.
+        """
+        from agentic.core import ToolCall, AgentConfig
+
+        tool_call = ToolCall(
+            name="test_tool",
+            arguments={},
+            raw_segment="",
+            iteration=0,
+            call_id="test_id"
+        )
+
+        def callback(tc):
+            return False  # Reject
+
+        config = AgentConfig(agent_id="test", on_tool_detected=callback)
+
+        decision = await agent_runner._should_execute_tool(
+            tool_call, config, "step_123"
+        )
+
+        assert decision.accepted is False
+        assert decision.rejection_reason == "Rejected by callback"
+        assert decision.verification_required is True
+
+    @pytest.mark.asyncio
+    async def test_should_execute_tool_with_callback_exception(self, agent_runner):
+        """Test _should_execute_tool when callback raises exception.
+
+        When callback raises an exception, should return decision with accepted=False
+        and "Callback exception" in rejection reason.
+        """
+        from agentic.core import ToolCall, AgentConfig
+
+        tool_call = ToolCall(
+            name="test_tool",
+            arguments={},
+            raw_segment="",
+            iteration=0,
+            call_id="test_id"
+        )
+
+        def callback(tc):
+            raise RuntimeError("Callback failed")
+
+        config = AgentConfig(agent_id="test", on_tool_detected=callback)
+
+        decision = await agent_runner._should_execute_tool(
+            tool_call, config, "step_123"
+        )
+
+        assert decision.accepted is False
+        assert "Callback exception" in decision.rejection_reason
+        assert "Callback failed" in decision.rejection_reason
+        assert decision.verification_required is True
+
+    def test_determine_step_status_error(self, agent_runner):
+        """Test _determine_step_status returns ERROR when error_message is set."""
+        from agentic.core import AgentStatus, ExtractedSegments
+
+        status = agent_runner._determine_step_status(
+            error_message="Something failed",
+            tool_decisions=[],
+            segments=ExtractedSegments()
+        )
+
+        assert status == AgentStatus.ERROR
+
+    def test_determine_step_status_tool_executed(self, agent_runner):
+        """Test _determine_step_status returns TOOL_EXECUTED when tools ran."""
+        from agentic.core import AgentStatus, ToolCall, ToolResult, ExtractedSegments, ToolExecutionDecision
+
+        tool_call = ToolCall("test", {}, "", 0, "id1")
+        tool_result = ToolResult("test", {}, True, None, 0.1, 0)
+
+        decision = ToolExecutionDecision(
+            tool_call=tool_call,
+            verification_required=False,
+            accepted=True,
+            executed=True,
+            result=tool_result
+        )
+
+        status = agent_runner._determine_step_status(
+            error_message=None,
+            tool_decisions=[decision],
+            segments=ExtractedSegments()
+        )
+
+        assert status == AgentStatus.TOOL_EXECUTED
+
+    def test_determine_step_status_waiting_for_tool(self, agent_runner):
+        """Test _determine_step_status returns WAITING_FOR_TOOL when tools detected but not executed."""
+        from agentic.core import AgentStatus, ToolCall, ExtractedSegments, ToolExecutionDecision
+
+        tool_call = ToolCall("test", {}, "", 0, "id1")
+
+        decision = ToolExecutionDecision(
+            tool_call=tool_call,
+            verification_required=False,
+            accepted=True,
+            executed=False  # Not yet executed
+        )
+
+        status = agent_runner._determine_step_status(
+            error_message=None,
+            tool_decisions=[decision],
+            segments=ExtractedSegments()
+        )
+
+        assert status == AgentStatus.WAITING_FOR_TOOL
+
+    def test_determine_step_status_done(self, agent_runner):
+        """Test _determine_step_status returns DONE when no response and no tools."""
+        from agentic.core import AgentStatus, ExtractedSegments
+
+        status = agent_runner._determine_step_status(
+            error_message=None,
+            tool_decisions=[],
+            segments=ExtractedSegments()  # No response
+        )
+
+        assert status == AgentStatus.DONE
+
+    def test_determine_step_status_ok(self, agent_runner):
+        """Test _determine_step_status returns OK for normal response."""
+        from agentic.core import AgentStatus, ExtractedSegments
+
+        status = agent_runner._determine_step_status(
+            error_message=None,
+            tool_decisions=[],
+            segments=ExtractedSegments(response="Normal response")
+        )
+
+        assert status == AgentStatus.OK
+
+    @pytest.mark.asyncio
+    async def test_parse_error_whitespace_only(self, agent_runner):
+        """Test parse error handling with whitespace-only error text."""
+        from agentic.core import ExtractedSegments
+        from agentic.events import ErrorEvent
+        from unittest.mock import patch
+
+        with patch('agentic.patterns.StreamingPatternExtractor.finalize') as mock_finalize:
+            mock_finalize.return_value = (
+                ExtractedSegments(response="test", parse_errors={"pattern": "   "}),
+                {}
+            )
+
+            events = []
+            async for event in agent_runner.step_stream("test"):
+                events.append(event)
+
+            error_events = [e for e in events if isinstance(e, ErrorEvent)]
+            assert len(error_events) > 0
+
+    @pytest.mark.asyncio
+    async def test_parse_error_only_newlines(self, agent_runner):
+        """Test parse error handling with only newlines."""
+        from agentic.core import ExtractedSegments
+        from agentic.events import ErrorEvent
+        from unittest.mock import patch
+
+        with patch('agentic.patterns.StreamingPatternExtractor.finalize') as mock_finalize:
+            mock_finalize.return_value = (
+                ExtractedSegments(response="test", parse_errors={"pattern": "\n\n\n"}),
+                {}
+            )
+
+            events = []
+            async for event in agent_runner.step_stream("test"):
+                events.append(event)
+
+            error_events = [e for e in events if isinstance(e, ErrorEvent)]
+            assert len(error_events) > 0

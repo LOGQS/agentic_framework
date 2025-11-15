@@ -73,6 +73,27 @@ class ToolStartEvent(BaseEvent):
 
 
 @dataclass(init=False)
+class ToolDecisionEvent(BaseEvent):
+    """Emitted when verification decision is made about a tool (accepted/rejected)."""
+    tool_name: str
+    call_id: str
+    accepted: bool
+    rejection_reason: str | None = None
+    verification_duration_ms: float = 0.0
+
+    def __init__(self, tool_name: str, call_id: str, accepted: bool, rejection_reason: str | None = None,
+                 verification_duration_ms: float = 0.0, timestamp: float = None, step_id: str = ""):
+        self.tool_name = tool_name
+        self.call_id = call_id
+        self.accepted = accepted
+        self.rejection_reason = rejection_reason
+        self.verification_duration_ms = verification_duration_ms
+        self.type = "tool_decision"
+        self.timestamp = timestamp or now_timestamp()
+        self.step_id = step_id
+
+
+@dataclass(init=False)
 class ToolOutputEvent(BaseEvent):
     """May be partial during streaming."""
     tool_name: str
@@ -299,7 +320,7 @@ class ContextHealthEvent(BaseEvent):
 
 AgentEvent = (
     LLMTokenEvent | LLMCompleteEvent | StatusEvent |
-    ToolStartEvent | ToolOutputEvent | ToolEndEvent | ToolValidationEvent |
+    ToolStartEvent | ToolDecisionEvent | ToolOutputEvent | ToolEndEvent | ToolValidationEvent |
     ContextWriteEvent | ErrorEvent |
     PatternStartEvent | PatternContentEvent | PatternEndEvent |
     StepCompleteEvent | RetryEvent | RateLimitEvent | ContextHealthEvent

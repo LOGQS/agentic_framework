@@ -238,7 +238,7 @@ class TestToolStreaming:
 
     @pytest.mark.asyncio
     async def test_tool_run_stream_error_handling(self):
-        """Test run_stream error handling."""
+        """Test run_stream error handling - exceptions should propagate."""
         class ErrorStreamingTool:
             def __call__(self, inputs):
                 return {}
@@ -251,11 +251,13 @@ class TestToolStreaming:
         tool = create_tool("error_stream_tool", error_tool_func)
 
         outputs = []
-        async for event in tool.run_stream({}, iteration=1):
-            outputs.append(event)
+        with pytest.raises(RuntimeError, match="Stream failed"):
+            async for event in tool.run_stream({}, iteration=1):
+                outputs.append(event)
 
-        # Should get chunk1 and then error event
-        assert len(outputs) >= 1
+        # Should get chunk1 before exception is raised
+        assert len(outputs) == 1
+        assert outputs[0].output == "chunk1"
 
 
 class TestToolRegistry:

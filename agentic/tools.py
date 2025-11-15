@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, TimeoutE
 
 from .core import ProcessingMode, ToolResult
 from .events import ToolOutputEvent
+from .logging_util import get_logger
 
 if TYPE_CHECKING:
     from .validation import ValidatorRegistry, ValidationError
@@ -23,6 +24,9 @@ class ToolDefinition:
     timeout_seconds: float = 30.0
     processing_mode: ProcessingMode | None = None  # None means inherit from parent
     description: str = ""
+
+
+logger = get_logger(__name__)
 
 
 class Tool:
@@ -69,6 +73,12 @@ class Tool:
         if effective_mode is None:
             effective_mode = ProcessingMode.THREAD
 
+        logger.debug("tool.execute.start", extra={
+            "tool_name": self._definition.name,
+            "iteration": iteration,
+            "processing_mode": effective_mode.value
+        })
+
         try:
             if effective_mode == ProcessingMode.PROCESS:
                 output = self._run_in_process(inputs)
@@ -81,6 +91,13 @@ class Tool:
 
             execution_time = time.time() - start_time
 
+            logger.debug("tool.execute.complete", extra={
+                "tool_name": self._definition.name,
+                "iteration": iteration,
+                "execution_time_ms": round(execution_time * 1000, 2),
+                "success": True
+            })
+
             return ToolResult(
                 name=self._definition.name,
                 output=output,
@@ -92,6 +109,14 @@ class Tool:
 
         except (TimeoutError, asyncio.TimeoutError) as e:
             execution_time = time.time() - start_time
+
+            logger.warning("tool.execute.timeout", extra={
+                "tool_name": self._definition.name,
+                "iteration": iteration,
+                "timeout_seconds": self._definition.timeout_seconds,
+                "execution_time_ms": round(execution_time * 1000, 2)
+            })
+
             return ToolResult(
                 name=self._definition.name,
                 output=None,
@@ -103,6 +128,15 @@ class Tool:
 
         except Exception as e:
             execution_time = time.time() - start_time
+
+            logger.error("tool.execute.error", extra={
+                "tool_name": self._definition.name,
+                "iteration": iteration,
+                "error": str(e),
+                "error_type": type(e).__name__,
+                "execution_time_ms": round(execution_time * 1000, 2)
+            }, exc_info=True)
+
             return ToolResult(
                 name=self._definition.name,
                 output=None,
@@ -129,33 +163,19 @@ class Tool:
             ToolOutputEvent - Tool output events (partial or complete)
         """
         if hasattr(self._callable, 'run_stream') and callable(getattr(self._callable, 'run_stream')):
-            try:
-                async for output_chunk in self._callable.run_stream(inputs):
-                    yield ToolOutputEvent(
-                        tool_name=self._definition.name,
-                        output=output_chunk,
-                        is_partial=True
-                    )
-            except Exception as e:
+            async for output_chunk in self._callable.run_stream(inputs):
                 yield ToolOutputEvent(
                     tool_name=self._definition.name,
-                    output={"error": str(e)},
-                    is_partial=False
+                    output=output_chunk,
+                    is_partial=True
                 )
         elif self._is_async:
-            try:
-                result = await self._callable(inputs)
-                yield ToolOutputEvent(
-                    tool_name=self._definition.name,
-                    output=result,
-                    is_partial=False
-                )
-            except Exception as e:
-                yield ToolOutputEvent(
-                    tool_name=self._definition.name,
-                    output={"error": str(e)},
-                    is_partial=False
-                )
+            result = await self._callable(inputs)
+            yield ToolOutputEvent(
+                tool_name=self._definition.name,
+                output=result,
+                is_partial=False
+            )
         else:
             # Sync callable - run in executor
             loop = asyncio.get_event_loop()

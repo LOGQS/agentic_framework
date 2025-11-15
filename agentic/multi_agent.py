@@ -274,36 +274,59 @@ class ParallelPattern:
         results: dict[str, AgentStepResult] = {}
         event_queue = asyncio.Queue()
 
-        async def run_agent(name: str, runner: AgentRunner):
-            async for event in runner.step_stream(query, processing_mode):
-                await event_queue.put((name, event))
-                if isinstance(event, StepCompleteEvent):
-                    results[name] = event.result
-            await event_queue.put((name, None))
+        async def run_agent_with_timeout(name: str, runner: AgentRunner):
+            """
+            Run agent with timeout and proper cleanup.
+
+            Ensures tasks are fully cancelled and awaited to prevent resource leaks.
+            """
+            async def agent_task():
+                async for event in runner.step_stream(query, processing_mode):
+                    await event_queue.put((name, event))
+                    if isinstance(event, StepCompleteEvent):
+                        results[name] = event.result
+
+            task = asyncio.create_task(agent_task())
+
+            try:
+                await asyncio.wait_for(task, timeout=self._config.timeout_seconds)
+                await event_queue.put((name, None))
+            except asyncio.TimeoutError:
+                # Explicit cancellation
+                task.cancel()
+
+                # Wait for task to finish cancelling (up to 1 second)
+                try:
+                    await asyncio.wait_for(task, timeout=1.0)
+                except (asyncio.TimeoutError, asyncio.CancelledError):
+                    # Task cancelled or didn't finish within 1s - continue anyway
+                    pass
+
+                await event_queue.put((name, StatusEvent(
+                    AgentStatus.ERROR,
+                    f"Agent '{name}' timed out after {self._config.timeout_seconds}s"
+                )))
+                await event_queue.put((name, None))
+            except Exception as exc:
+                await event_queue.put((name, StatusEvent(
+                    AgentStatus.ERROR,
+                    f"Agent '{name}' failed: {type(exc).__name__}: {exc}"
+                )))
+                await event_queue.put((name, None))
 
         tasks = [
-            asyncio.create_task(run_agent(name, runner))
+            asyncio.create_task(run_agent_with_timeout(name, runner))
             for name, runner in self._agents.items()
         ]
 
         finished = 0
         try:
             while finished < len(self._agents):
-                try:
-                    name, event = await asyncio.wait_for(
-                        event_queue.get(),
-                        timeout=self._config.timeout_seconds
-                    )
-                    if event is None:
-                        finished += 1
-                    else:
-                        yield event
-                except asyncio.TimeoutError:
-                    yield StatusEvent(
-                        AgentStatus.ERROR,
-                        f"Parallel execution timeout after {self._config.timeout_seconds}s"
-                    )
-                    break
+                name, event = await event_queue.get()
+                if event is None:
+                    finished += 1
+                else:
+                    yield event
 
             await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -311,6 +334,10 @@ class ParallelPattern:
             for task in tasks:
                 if not task.done():
                     task.cancel()
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        pass
 
         if self._config.merge_strategy == "concat":
             merged = self._merge_concat(results)
@@ -461,6 +488,8 @@ class DebatePattern:
             return False
 
         first_words = set(responses[0].lower().split())
+        if not first_words:
+            return False
 
         for response in responses[1:]:
             response_words = set(response.lower().split())

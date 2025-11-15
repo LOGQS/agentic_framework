@@ -11,6 +11,26 @@ import time
 from .core import new_uuid
 
 
+def _generate_app_id(app_id: str | None = None) -> str:
+    """
+    Generate application ID for database identification.
+
+    Format: agentic_<hash>_<timestamp>_<uuid>
+
+    Args:
+        app_id: Optional custom app ID base. Defaults to "agentic_framework".
+
+    Returns:
+        Generated app ID string
+    """
+    base = app_id if app_id else "agentic_framework"
+    hash_obj = hashlib.sha256(base.encode('utf-8'))
+    hash_hex = hash_obj.hexdigest()[:16]
+    timestamp = int(time.time())
+    unique_id = new_uuid()[:8]
+    return f"agentic_{hash_hex}_{timestamp}_{unique_id}"
+
+
 @dataclass
 class StorageConfig:
     """Configuration for storage layer."""
@@ -50,11 +70,16 @@ class RocksDBStorage:
         opts.set_max_write_buffer_number(3)
         opts.set_target_file_size_base(67108864)
 
-        self._db = Rdict(str(self._db_path / "db"), options=opts)
-
-        # Ensure identification
-        self._ensure_identification()
-        self._initialized = True
+        try:
+            self._db = Rdict(str(self._db_path / "db"), options=opts)
+            self._ensure_identification()
+            self._initialized = True
+        except Exception:
+            # Clean up DB connection on initialization failure
+            if self._db is not None:
+                self._db.close()
+                self._db = None
+            raise
 
     def get_db_path(self) -> Path:
         if not self._initialized or self._db_path is None:
@@ -118,7 +143,7 @@ class RocksDBStorage:
         existing_id = self._db.get(id_key)
 
         if existing_id is None:
-            app_id = self._generate_app_id()
+            app_id = _generate_app_id(self._config.app_id)
             self._db.put(id_key, app_id.encode('utf-8'))
         else:
             stored_id = existing_id.decode('utf-8')
@@ -127,20 +152,6 @@ class RocksDBStorage:
                     f"Invalid or corrupted database ID: {stored_id}. "
                     "This database may not belong to this application."
                 )
-
-    def _generate_app_id(self) -> str:
-        """Format: agentic_<hash>_<timestamp>_<uuid>"""
-        if self._config.app_id:
-            base = self._config.app_id
-        else:
-            base = "agentic_framework"
-
-        hash_obj = hashlib.sha256(base.encode('utf-8'))
-        hash_hex = hash_obj.hexdigest()[:16]
-        timestamp = int(time.time())
-        unique_id = new_uuid()[:8]
-
-        return f"agentic_{hash_hex}_{timestamp}_{unique_id}"
 
     def _validate_app_id(self, app_id: str) -> bool:
         """
@@ -174,3 +185,96 @@ class RocksDBStorage:
             return False
 
         return True
+
+
+class InMemoryStorage:
+    """
+    In-memory storage backend for testing and simple scripts.
+
+    Implements same interface as RocksDBStorage but stores all data in memory.
+    Data is lost when process terminates.
+
+    Performance:
+    - Uses lazy sorted cache for efficient iteration
+    - First iterate() after writes: O(n log n) to build cache
+    - Subsequent iterate() calls: O(log n + k) where k = matching keys
+    - Optimized for read-heavy test workloads (write once, read many)
+    """
+
+    def __init__(self, config: StorageConfig):
+        self._config = config
+        self._data: dict[bytes, bytes] = {}
+        self._sorted_keys_cache: list[bytes] | None = None  # Lazy cache, invalidated on writes
+        self._initialized = False
+
+    def initialize(self) -> None:
+        """Initialize in-memory storage."""
+        if self._initialized:
+            return
+
+        # Generate app ID for consistency with RocksDB implementation
+        app_id = _generate_app_id(self._config.app_id)
+        self._data[b"metadata:id"] = app_id.encode('utf-8')
+        self._sorted_keys_cache = None  # Invalidate cache after write
+        self._initialized = True
+
+    def get_db_path(self) -> Path:
+        """Return pseudo path for in-memory storage (requires initialization)."""
+        if not self._initialized:
+            raise RuntimeError("Storage not initialized.")
+        return Path(":memory:")
+
+    def get(self, key: bytes) -> bytes | None:
+        """Retrieve value by key."""
+        if not self._initialized:
+            raise RuntimeError("Storage not initialized.")
+        return self._data.get(key)
+
+    def put(self, key: bytes, value: bytes) -> None:
+        """Store key-value pair."""
+        if not self._initialized:
+            raise RuntimeError("Storage not initialized.")
+        self._data[key] = value
+        self._sorted_keys_cache = None  # Invalidate cache
+
+    def delete(self, key: bytes) -> None:
+        """Delete key from storage."""
+        if not self._initialized:
+            raise RuntimeError("Storage not initialized.")
+        if key in self._data:
+            del self._data[key]
+            self._sorted_keys_cache = None  # Invalidate cache
+
+    def iterate(self, prefix: bytes) -> Iterator[tuple[bytes, bytes]]:
+        """
+        Iterate over keys with given prefix in lexicographic byte order.
+
+        Uses lazy sorted cache + binary search for efficient prefix matching.
+        Optimized for test scenarios: write context once, iterate many times.
+
+        Performance:
+        - Cold (after writes): O(n log n) to rebuild cache
+        - Warm (cache valid): O(log n + k) where k = matching keys
+        """
+        if not self._initialized:
+            raise RuntimeError("Storage not initialized.")
+
+        # Lazily rebuild sorted cache if invalidated
+        if self._sorted_keys_cache is None:
+            self._sorted_keys_cache = sorted(self._data.keys())
+
+        # Binary search for first key >= prefix
+        import bisect
+        start_idx = bisect.bisect_left(self._sorted_keys_cache, prefix)
+
+        # Iterate from start_idx until keys no longer match prefix
+        for key in self._sorted_keys_cache[start_idx:]:
+            if not key.startswith(prefix):
+                break
+            yield (key, self._data[key])
+
+    def close(self) -> None:
+        """Close storage and clear all data."""
+        self._data.clear()
+        self._sorted_keys_cache = None
+        self._initialized = False

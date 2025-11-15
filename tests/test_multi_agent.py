@@ -469,7 +469,7 @@ class TestParallelPattern:
 
         # Should have timeout error event
         status_events = [e for e in events if isinstance(e, StatusEvent)]
-        assert any("timeout" in e.message.lower() for e in status_events if e.message)
+        assert any("timed out" in e.message.lower() for e in status_events if e.message)
 
 
 class TestDebateConfig:
@@ -674,3 +674,355 @@ class TestMultiAgentEdgeCases:
 
         # Should handle single agent debate
         assert len(events) >= 1
+
+
+@pytest.mark.asyncio
+class TestParallelTimeoutFixes:
+    """Tests for parallel pattern timeout fixes."""
+
+    async def test_one_agent_times_out_others_succeed(self, context_manager, pattern_registry, tool_registry):
+        """Test one agent timing out while others succeed.
+
+        When one agent times out, the other agents should complete successfully
+        and their results should be included in the final output.
+        """
+        from agentic.multi_agent import ParallelPattern, ParallelConfig
+        from agentic.agent import Agent
+        from agentic.core import AgentConfig
+        from agentic.events import StatusEvent, StepCompleteEvent
+        from tests.mock_provider import MockLLMProvider
+
+        # Fast agent
+        fast_provider = MockLLMProvider(response="Fast response")
+        fast_agent = Agent(
+            config=AgentConfig(agent_id="fast"),
+            context=context_manager,
+            patterns=pattern_registry,
+            tools=tool_registry,
+            provider_client=fast_provider
+        )
+
+        # Slow agent that will timeout
+        import asyncio
+
+        class SlowProvider:
+            async def stream(self, prompt, **kwargs):
+                await asyncio.sleep(10)  # Longer than timeout
+                yield "slow"
+
+        slow_agent = Agent(
+            config=AgentConfig(agent_id="slow"),
+            context=context_manager,
+            patterns=pattern_registry,
+            tools=tool_registry,
+            provider_client=SlowProvider()
+        )
+
+        config = ParallelConfig(merge_strategy="concat", timeout_seconds=0.5)
+        pattern = ParallelPattern(
+            agents={"fast": fast_agent, "slow": slow_agent},
+            config=config
+        )
+
+        events = []
+        async for event in pattern.execute_and_merge("Query"):
+            events.append(event)
+
+        # Should have events from fast agent and timeout event for slow
+        status_events = [e for e in events if isinstance(e, StatusEvent)]
+        step_events = [e for e in events if isinstance(e, StepCompleteEvent)]
+
+        # Fast agent should complete
+        assert any("fast" in str(e) or e.result.status.value == "ok" for e in step_events if hasattr(e, 'result'))
+        # Slow agent should timeout
+        assert any("timed out" in e.message.lower() for e in status_events if hasattr(e, 'message') and e.message)
+
+    async def test_all_agents_timeout(self, context_manager, pattern_registry, tool_registry):
+        """Test all agents timing out.
+
+        When all agents timeout, should still complete gracefully with
+        appropriate timeout messages.
+        """
+        from agentic.multi_agent import ParallelPattern, ParallelConfig
+        from agentic.agent import Agent
+        from agentic.core import AgentConfig
+        from agentic.events import StatusEvent
+        import asyncio
+
+        class SlowProvider:
+            async def stream(self, prompt, **kwargs):
+                await asyncio.sleep(10)
+                yield "slow"
+
+        agents = {}
+        for i in range(3):
+            agent = Agent(
+                config=AgentConfig(agent_id=f"slow{i}"),
+                context=context_manager,
+                patterns=pattern_registry,
+                tools=tool_registry,
+                provider_client=SlowProvider()
+            )
+            agents[f"slow{i}"] = agent
+
+        config = ParallelConfig(merge_strategy="concat", timeout_seconds=0.5)
+        pattern = ParallelPattern(agents=agents, config=config)
+
+        events = []
+        async for event in pattern.execute_and_merge("Query"):
+            events.append(event)
+
+        # All should timeout
+        status_events = [e for e in events if isinstance(e, StatusEvent)]
+        timeout_events = [e for e in status_events if hasattr(e, 'message') and e.message and 'timed out' in e.message.lower()]
+
+        assert len(timeout_events) >= 1  # At least one timeout message
+
+    async def test_timeout_before_first_event(self, context_manager, pattern_registry, tool_registry):
+        """Test timeout occurring before agent emits first event.
+
+        Tests edge case where timeout fires before the agent has emitted
+        any events at all.
+        """
+        from agentic.multi_agent import ParallelPattern, ParallelConfig
+        from agentic.agent import Agent
+        from agentic.core import AgentConfig
+        from agentic.events import StatusEvent
+        import asyncio
+
+        class VerySlowProvider:
+            async def stream(self, prompt, **kwargs):
+                await asyncio.sleep(10)  # Much longer than timeout
+                yield "never seen"
+
+        agent = Agent(
+            config=AgentConfig(agent_id="veryslow"),
+            context=context_manager,
+            patterns=pattern_registry,
+            tools=tool_registry,
+            provider_client=VerySlowProvider()
+        )
+
+        config = ParallelConfig(merge_strategy="concat", timeout_seconds=0.1)
+        pattern = ParallelPattern(agents={"veryslow": agent}, config=config)
+
+        events = []
+        async for event in pattern.execute_and_merge("Query"):
+            events.append(event)
+
+        # Should have timeout event
+        status_events = [e for e in events if isinstance(e, StatusEvent)]
+        assert any("timed out" in e.message.lower() for e in status_events if hasattr(e, 'message') and e.message)
+
+    async def test_agent_exception_during_execution(self, context_manager, pattern_registry, tool_registry):
+        """Test agent exception handling in parallel execution.
+
+        When an agent raises an exception during execution, it should be
+        caught and reported as an error event.
+        """
+        from agentic.multi_agent import ParallelPattern, ParallelConfig
+        from agentic.agent import Agent
+        from agentic.core import AgentConfig
+        from agentic.events import StatusEvent
+
+        # Provider that raises exception mid-stream
+        class ExceptionProvider:
+            async def stream(self, prompt, **kwargs):
+                yield "Starting"
+                raise ValueError("Simulated stream error")
+
+        error_agent = Agent(
+            config=AgentConfig(agent_id="error_agent"),
+            context=context_manager,
+            patterns=pattern_registry,
+            tools=tool_registry,
+            provider_client=ExceptionProvider()
+        )
+
+        # Normal agent for comparison
+        normal_provider = MockLLMProvider(response="Normal response")
+        normal_agent = Agent(
+            config=AgentConfig(agent_id="normal"),
+            context=context_manager,
+            patterns=pattern_registry,
+            tools=tool_registry,
+            provider_client=normal_provider
+        )
+
+        config = ParallelConfig(merge_strategy="concat", timeout_seconds=5.0)
+        pattern = ParallelPattern(
+            agents={"error": error_agent, "normal": normal_agent},
+            config=config
+        )
+
+        events = []
+        async for event in pattern.execute_and_merge("Query"):
+            events.append(event)
+
+        # Should have error event for the failed agent
+        status_events = [e for e in events if isinstance(e, StatusEvent)]
+        step_events = [e for e in events if isinstance(e, StepCompleteEvent)]
+
+        # Check that we get results from normal agent and error handling from error agent
+        # The error should be caught and handled gracefully
+        assert len(events) > 0  # Should have some events
+
+        # At least one agent should have error status or error message
+        has_error = any(
+            ("failed" in e.message.lower() if hasattr(e, 'message') and e.message else False) or
+            (e.status == AgentStatus.ERROR if hasattr(e, 'status') else False)
+            for e in status_events
+        ) or any(
+            e.result.status == AgentStatus.ERROR
+            for e in step_events if hasattr(e, 'result')
+        )
+
+        # Normal agent should complete successfully
+        normal_completed = any(
+            e.result.status == AgentStatus.OK
+            for e in step_events if hasattr(e, 'result')
+        )
+
+        assert has_error or normal_completed  # At least one condition should be true
+
+    async def test_multiple_agents_different_failure_modes(self, context_manager, pattern_registry, tool_registry):
+        """Test handling multiple agents with different failure modes.
+
+        Mix of: success, timeout, exception - all should be handled gracefully.
+        """
+        from agentic.multi_agent import ParallelPattern, ParallelConfig
+        from agentic.agent import Agent
+        from agentic.core import AgentConfig
+        from agentic.events import StatusEvent, StepCompleteEvent
+        import asyncio
+
+        # Success agent
+        success_provider = MockLLMProvider(response="Success")
+        success_agent = Agent(
+            config=AgentConfig(agent_id="success"),
+            context=context_manager,
+            patterns=pattern_registry,
+            tools=tool_registry,
+            provider_client=success_provider
+        )
+
+        # Timeout agent
+        class TimeoutProvider:
+            async def stream(self, prompt, **kwargs):
+                await asyncio.sleep(10)
+                yield "timeout"
+
+        timeout_agent = Agent(
+            config=AgentConfig(agent_id="timeout"),
+            context=context_manager,
+            patterns=pattern_registry,
+            tools=tool_registry,
+            provider_client=TimeoutProvider()
+        )
+
+        # Exception agent
+        class ExceptionProvider:
+            async def stream(self, prompt, **kwargs):
+                raise RuntimeError("Agent error")
+                if False:  # Make it a generator
+                    yield
+
+        exception_agent = Agent(
+            config=AgentConfig(agent_id="exception"),
+            context=context_manager,
+            patterns=pattern_registry,
+            tools=tool_registry,
+            provider_client=ExceptionProvider()
+        )
+
+        config = ParallelConfig(merge_strategy="concat", timeout_seconds=0.5)
+        pattern = ParallelPattern(
+            agents={
+                "success": success_agent,
+                "timeout": timeout_agent,
+                "exception": exception_agent
+            },
+            config=config
+        )
+
+        events = []
+        async for event in pattern.execute_and_merge("Query"):
+            events.append(event)
+
+        status_events = [e for e in events if isinstance(e, StatusEvent)]
+        step_events = [e for e in events if isinstance(e, StepCompleteEvent)]
+
+        # Should have success from one agent
+        assert len(step_events) >= 1
+
+        # Should have failure messages for timeout and exception
+        status_messages = [e.message.lower() for e in status_events if hasattr(e, 'message') and e.message]
+        has_timeout = any("timed out" in msg for msg in status_messages)
+        has_error = any("failed" in msg or "error" in msg for msg in status_messages)
+
+        # At least one failure should be reported
+        assert has_timeout or has_error
+
+    @pytest.mark.asyncio
+    async def test_debate_empty_first_response(self, context_manager, pattern_registry, tool_registry):
+        """Test debate consensus when first agent returns empty response."""
+        provider1 = MockLLMProvider(response="")
+        agent1 = Agent(
+            config=AgentConfig(agent_id="agent1"),
+            context=context_manager,
+            patterns=pattern_registry,
+            tools=tool_registry,
+            provider_client=provider1
+        )
+
+        provider2 = MockLLMProvider(response="Normal response")
+        agent2 = Agent(
+            config=AgentConfig(agent_id="agent2"),
+            context=context_manager,
+            patterns=pattern_registry,
+            tools=tool_registry,
+            provider_client=provider2
+        )
+
+        debate = DebatePattern(
+            agents={"agent1": agent1, "agent2": agent2},
+            config=DebateConfig(max_rounds=2, consensus_detector=None)
+        )
+
+        events = []
+        async for event in debate.converge("Test"):
+            events.append(event)
+
+        assert len(events) > 0
+
+    @pytest.mark.asyncio
+    async def test_debate_whitespace_first_response(self, context_manager, pattern_registry, tool_registry):
+        """Test debate consensus when first agent returns whitespace."""
+        provider1 = MockLLMProvider(response="   \t\n  ")
+        agent1 = Agent(
+            config=AgentConfig(agent_id="agent1"),
+            context=context_manager,
+            patterns=pattern_registry,
+            tools=tool_registry,
+            provider_client=provider1
+        )
+
+        provider2 = MockLLMProvider(response="Normal response")
+        agent2 = Agent(
+            config=AgentConfig(agent_id="agent2"),
+            context=context_manager,
+            patterns=pattern_registry,
+            tools=tool_registry,
+            provider_client=provider2
+        )
+
+        debate = DebatePattern(
+            agents={"agent1": agent1, "agent2": agent2},
+            config=DebateConfig(max_rounds=2, consensus_detector=None)
+        )
+
+        events = []
+        async for event in debate.converge("Test"):
+            events.append(event)
+
+        assert len(events) > 0

@@ -95,10 +95,12 @@ class TestAgentStatus:
     def test_agent_status_members(self):
         """Validate that all expected members exist."""
         statuses = list(AgentStatus)
-        assert len(statuses) == 6 
+        assert len(statuses) == 8
         assert AgentStatus.OK in statuses
+        assert AgentStatus.WAITING_FOR_VERIFICATION in statuses
         assert AgentStatus.WAITING_FOR_TOOL in statuses
         assert AgentStatus.TOOL_EXECUTED in statuses
+        assert AgentStatus.TOOLS_REJECTED in statuses
         assert AgentStatus.VALIDATION_ERROR in statuses
         assert AgentStatus.DONE in statuses
         assert AgentStatus.ERROR in statuses
@@ -404,6 +406,31 @@ class TestAgentConfig:
         )
         assert config.input_mapping == input_map
         assert config.output_mapping == output_map
+
+    def test_tool_verification_on_timeout_accept(self):
+        """Test AgentConfig accepts 'accept' for tool_verification_on_timeout."""
+        config = AgentConfig(
+            agent_id="agent",
+            tool_verification_on_timeout="accept"
+        )
+        assert config.tool_verification_on_timeout == "accept"
+
+    def test_tool_verification_on_timeout_reject(self):
+        """Test AgentConfig accepts 'reject' for tool_verification_on_timeout."""
+        config = AgentConfig(
+            agent_id="agent",
+            tool_verification_on_timeout="reject"
+        )
+        assert config.tool_verification_on_timeout == "reject"
+
+    def test_tool_verification_on_timeout_invalid(self):
+        """Test AgentConfig rejects invalid tool_verification_on_timeout values."""
+        import pytest
+        with pytest.raises(ValueError, match="must be 'accept' or 'reject'"):
+            AgentConfig(
+                agent_id="agent",
+                tool_verification_on_timeout="invalid"
+            )
 
 
 class TestUtilityFunctions:

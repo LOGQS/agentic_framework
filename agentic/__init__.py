@@ -9,6 +9,7 @@ from .core import (
     AgentStatus,
     ToolCall,
     ToolResult,
+    ToolExecutionDecision,
     ExtractedSegments,
     AgentStepResult,
     AgentConfig,
@@ -38,6 +39,7 @@ from .events import (
     LLMCompleteEvent,
     StatusEvent,
     ToolStartEvent,
+    ToolDecisionEvent,
     ToolOutputEvent,
     ToolEndEvent,
     ToolValidationEvent,
@@ -55,7 +57,8 @@ from .events import (
 # Storage layer
 from .storage import (
     StorageConfig,
-    RocksDBStorage
+    RocksDBStorage,
+    InMemoryStorage
 )
 
 # Context management
@@ -136,6 +139,7 @@ __all__ = [
     "AgentStatus",
     "ToolCall",
     "ToolResult",
+    "ToolExecutionDecision",
     "ExtractedSegments",
     "AgentStepResult",
     "AgentConfig",
@@ -159,6 +163,7 @@ __all__ = [
     "LLMCompleteEvent",
     "StatusEvent",
     "ToolStartEvent",
+    "ToolDecisionEvent",
     "ToolOutputEvent",
     "ToolEndEvent",
     "ToolValidationEvent",
@@ -174,6 +179,7 @@ __all__ = [
     # Storage
     "StorageConfig",
     "RocksDBStorage",
+    "InMemoryStorage",
     # Context
     "ContextRecord",
     "IterationManager",

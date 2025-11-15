@@ -1,6 +1,6 @@
 # Test Suite
 
-Comprehensive test suite with 700+ tests covering all framework components including validation, resilience, multi-agent orchestration, and security features.
+Comprehensive test suite with 640+ tests covering all framework components including validation, resilience, multi-agent orchestration, security features, and structured logging.
 
 ## Structure
 
@@ -8,20 +8,22 @@ Comprehensive test suite with 700+ tests covering all framework components inclu
 tests/
 ├── conftest.py                              # Shared fixtures and test utilities
 ├── mock_provider.py                         # MockLLMProvider for testing
-├── test_core.py                             # Core types and utilities (70+ tests)
+├── test_core.py                             # Core types and utilities (75+ tests)
 ├── test_validation.py                       # Validation system (40+ tests)
-├── test_storage.py                          # RocksDB storage (45+ tests)
+├── test_storage.py                          # Storage backends (65+ tests)
 ├── test_context.py                          # Context versioning (65+ tests)
-├── test_events.py                           # Event system (85+ tests)
-├── test_patterns.py                         # Pattern extraction (40+ tests)
+├── test_events.py                           # Event system (90+ tests)
+├── test_patterns.py                         # Pattern extraction (55+ tests)
 ├── test_tools.py                            # Tool execution (40+ tests)
-├── test_agent.py                            # Agent execution (90+ tests)
+├── test_agent.py                            # Agent execution (105+ tests)
+├── test_agent_logging.py                    # Agent logging integration (15+ tests)
 ├── test_agent_streaming_integration.py      # Streaming workflows (20+ tests)
 ├── test_logic.py                            # Logic control flow (50+ tests)
 ├── test_logic_evaluation_points.py          # Logic evaluation points (15+ tests)
 ├── test_resilience.py                       # Retry and rate limiting (60+ tests)
-├── test_multi_agent.py                      # Multi-agent coordination (60+ tests)
+├── test_multi_agent.py                      # Multi-agent coordination (70+ tests)
 ├── test_multi_prompt.py                     # Multi-prompt and PromptObject (50+ tests)
+├── test_logging_util.py                     # Structured logging utilities (25+ tests)
 └── test_security_fixes.py                   # Security features (15+ tests)
 ```
 
@@ -57,17 +59,18 @@ pytest --pdb
 
 | Module | Test Files | Key Coverage |
 |--------|------------|--------------|
-| **core.py** | test_core.py | ProcessingMode, SegmentType, AgentStatus enums; ToolCall, ToolResult, AgentConfig, PromptObject dataclasses; serialize_tool_output, output_to_string, now_timestamp, new_uuid |
+| **core.py** | test_core.py | ProcessingMode, SegmentType, AgentStatus enums; ToolCall, ToolResult, ToolExecutionDecision, AgentConfig, PromptObject dataclasses; serialize_tool_output, output_to_string, now_timestamp, new_uuid; tool verification timeout configuration |
 | **validation.py** | test_validation.py | ValidatorRegistry, simple_validator, passthrough_validator, custom validators, required fields, type checking, string/numeric constraints |
-| **storage.py** | test_storage.py | RocksDBStorage initialization, CRUD operations, DB identification and validation, path resolution with collision avoidance, prefix iteration, performance characteristics |
+| **storage.py** | test_storage.py | RocksDBStorage initialization, CRUD operations, DB identification and validation, path resolution with collision avoidance, prefix iteration, InMemoryStorage for testing/development, app_id generation and consistency, initialization lifecycle, error handling |
 | **context.py** | test_context.py | IterationManager, ContextManager, versioning, history tracking with limits, tombstone deletion, update() for incremental writes, list_keys with prefix filtering |
-| **events.py** | test_events.py | All 16 event types (LLM, tool, pattern, validation, retry, rate limit, context health), timestamps, step_id tracking, explicit vs auto timestamps |
-| **patterns.py** | test_patterns.py | Pattern and PatternSet, PatternRegistry, PatternExtractor (batch), StreamingPatternExtractor (incremental with buffer limits), tool call parsing (JSON/line format), greedy vs non-greedy matching |
+| **events.py** | test_events.py | All 17 event types (LLM, tool, tool decision, pattern, validation, retry, rate limit, context health), timestamps, step_id tracking, explicit vs auto timestamps, ToolDecisionEvent for verification workflow |
+| **patterns.py** | test_patterns.py | Pattern and PatternSet, PatternRegistry, PatternExtractor (batch), StreamingPatternExtractor (incremental with buffer limits and overlap window optimization), tool call parsing (JSON/line format) with detailed error messages, greedy vs non-greedy matching, parse error tracking, performance benchmarks, state reset on finalize |
 | **tools.py** | test_tools.py | Tool execution modes (PROCESS/THREAD/ASYNC), timeouts, streaming support, ToolRegistry operations, create_tool helper, error handling for different exception types |
-| **agent.py** | test_agent.py, test_agent_streaming_integration.py | Agent configuration, AgentRunner batch/streaming, tool execution (allowed/not allowed/not found), context updates, pattern extraction, event ordering, lifecycle events |
+| **agent.py** | test_agent.py, test_agent_logging.py, test_agent_streaming_integration.py | Agent configuration, AgentRunner batch/streaming, tool execution (allowed/not allowed/not found), tool verification workflow with acceptance/rejection, ToolExecutionDecision tracking, call_id matching for concurrent execution, context updates, pattern extraction, parse error handling, event ordering, lifecycle events, WAITING_FOR_VERIFICATION status, structured logging integration |
+| **logging_util.py** | test_logging_util.py | StructuredFormatter JSON serialization, non-serializable object handling (bytes, sets, lambdas, classes, generators, circular references), get_logger configuration, exception logging, nested non-serializable objects, fallback mechanisms |
 | **logic.py** | test_logic.py, test_logic_evaluation_points.py | LogicConfig and LogicCondition, max iterations, stop/loop-until conditions, break_on_error, evaluation points (llm_token, tool_detected, tool_finished, any_event, pattern_start, step_complete), helper functions |
 | **resilience.py** | test_resilience.py | RetryConfig with backoff strategies (exponential/linear/constant), jitter, RateLimiter token bucket, retry_stream, rate_limited_stream, resilient_stream, event emission |
-| **multi_agent.py** | test_multi_agent.py | AgentChain with pass modes (response/full_context/tool_results), custom transform functions, SupervisorPattern with delegation, ParallelPattern with concurrent execution and merge strategies, DebatePattern with consensus |
+| **multi_agent.py** | test_multi_agent.py | AgentChain with pass modes (response/full_context/tool_results), custom transform functions, SupervisorPattern with delegation, ParallelPattern with concurrent execution, merge strategies, timeout handling (single/all/partial), exception handling in parallel execution, DebatePattern with consensus and edge case handling (empty/whitespace responses) |
 | **multi_prompt.py** | test_multi_prompt.py | PromptObject dataclass, create_message_prompt_builder, role-based routing (system/user/assistant), multiple system entries, literal prefix, user_input handling |
 | **Security** | test_security_fixes.py | Buffer overflow protection in StreamingPatternExtractor (default 10MB limit), context history default limit (100 versions), custom buffer and history sizes |
 
@@ -89,26 +92,33 @@ pytest --pdb
 ## Test Categories
 
 **Unit Tests**: Individual functions/classes in isolation (< 1s per test)
-- Enums, dataclasses, utility functions (ProcessingMode, SegmentType, AgentStatus, ToolCall, ToolResult, PromptObject)
-- Event creation with timestamps and step IDs
+- Enums, dataclasses, utility functions (ProcessingMode, SegmentType, AgentStatus, ToolCall, ToolResult, ToolExecutionDecision, PromptObject)
+- Event creation with timestamps and step IDs (including ToolDecisionEvent)
 - Validator functions (simple_validator, passthrough_validator)
 - Backoff calculations (exponential, linear, constant with jitter)
 - Pattern and PatternSet creation
+- Storage app_id generation and consistency
+- Structured logging formatter with non-serializable objects
 
 **Integration Tests**: Component interactions (1-5s per test)
 - Agent execution with tool calls, validation, and context updates
+- Tool verification workflow with acceptance/rejection/timeout scenarios
+- ToolExecutionDecision tracking and call_id matching
 - Logic runner with stop/loop-until conditions and evaluation points
 - Context versioning, history tracking, and tombstone deletion
-- Storage CRUD operations with prefix iteration
+- Storage CRUD operations with prefix iteration (RocksDB and InMemory)
 - Multi-agent patterns (AgentChain, SupervisorPattern, ParallelPattern, DebatePattern)
 - Resilient streams combining retry and rate limiting
+- Structured logging integration in agent execution
 
 **Async Tests**: Marked with `@pytest.mark.asyncio`
 - Streaming pattern extraction with incremental events and buffer limits
 - Tool streaming (run_stream) for tools that support incremental output
 - Agent streaming (step_stream) with event ordering and pattern lifecycle
+- Tool verification callbacks with timeout handling
+- Parse error handling in streaming mode
 - Logic streaming (run_stream) with evaluation at different points
-- Multi-agent parallel execution with timeouts
+- Multi-agent parallel execution with timeouts, exceptions, and partial failures
 - Rate limited async operations with token bucket
 
 **Security Tests**: Protection mechanisms in `test_security_fixes.py`
@@ -116,12 +126,97 @@ pytest --pdb
 - Context history limits (default 100 versions, configurable)
 - Validation enforcement for tool arguments
 
+**Logging Tests**: Structured logging in `test_logging_util.py` and `test_agent_logging.py`
+- JSON serialization of log records with StructuredFormatter
+- Handling of non-serializable objects (bytes, sets, lambdas, generators, circular references)
+- Agent lifecycle logging (step.start, llm.complete, step.complete)
+- Tool verification and rejection logging
+- Parse error logging with structured context
+- Exception logging with stack traces
+- Unicode and large output handling
+
 ## Coverage Metrics
 
 - **Overall**: >90% across all modules
 - **Critical paths**: 100% (storage, context, agent execution, validation)
-- **Total**: 700+ tests, ~10000 lines of test code
-- **Core modules**: Validation (100%), Resilience (95%), Multi-agent (92%), Security (100%)
+- **Total**: 640+ tests
+- **Core modules**: Validation (100%), Resilience (95%), Multi-agent (92%), Security (100%), Logging (100%)
+
+## New Test Coverage (Recent Additions)
+
+### Agent Execution Enhancements (test_agent.py)
+- **Tool Verification Workflow**: Tests for `on_tool_detected` callback with acceptance, rejection, exceptions, and timeout handling
+- **ToolExecutionDecision Tracking**: Validation of decision objects with verification duration and rejection reasons
+- **Call ID Matching**: Tests for tool result matching with and without call_ids in concurrent execution mode
+- **Status Determination**: Unit tests for `_determine_step_status()` logic covering all status transitions
+- **Parse Error Handling**: Edge cases for whitespace-only and newline-only parse errors
+- **WAITING_FOR_VERIFICATION Status**: Verification status emission during tool approval workflow
+
+### Storage Backend Expansion (test_storage.py)
+- **InMemoryStorage**: Complete test suite for in-memory storage backend (16 new tests)
+  - Basic CRUD operations with lexicographic ordering
+  - Non-persistent behavior validation
+  - Initialization lifecycle and error handling
+  - Double initialization idempotency
+- **App ID Generation**: Tests for `_generate_app_id()` with default, custom, and None parameters
+- **Hash Consistency**: Validation that app_id hashing is deterministic and unique
+- **RocksDB Error Handling**: Tests for proper cleanup on initialization failures
+
+### Event System Extension (test_events.py)
+- **ToolDecisionEvent**: New event type for tool verification decisions (3 new tests)
+  - Accepted and rejected tool scenarios
+  - Verification duration tracking
+  - Integration with step_id tracking
+
+### Pattern Extraction Improvements (test_patterns.py)
+- **Overlap Window Optimization**: Performance tests for buffer window handling (14 new tests)
+  - Many small tokens feeding reasoning segments
+  - Reuse after large payloads
+  - Patterns spanning 2-3 tokens
+  - Exact boundary conditions
+- **Parse Error Details**: Enhanced error messages for invalid JSON, missing fields, and size limits
+- **Performance Benchmarks**: Large buffer and many-pattern performance tests
+- **State Management**: Finalize operation state reset validation
+
+### Multi-Agent Orchestration (test_multi_agent.py)
+- **Timeout Scenarios**: Comprehensive timeout handling (7 new tests)
+  - Single agent timeout while others succeed
+  - All agents timing out
+  - Timeout before first event
+  - Mixed failure modes (timeout + exception)
+- **Exception Handling**: Agent exception propagation in parallel execution
+- **Debate Edge Cases**: Empty and whitespace-only responses in consensus workflow
+
+### Core Types (test_core.py)
+- **Tool Verification Configuration**: AgentConfig validation for `tool_verification_on_timeout` (3 new tests)
+  - Accept/reject configuration options
+  - Invalid value rejection
+
+### Structured Logging (test_logging_util.py - NEW MODULE)
+- **StructuredFormatter**: JSON serialization with robust error handling (25+ tests)
+  - Basic JSON output validation
+  - Extra field inclusion
+  - Non-serializable object handling (bytes, sets, lambdas, classes, generators, circular references)
+  - Nested non-serializable structures
+  - Exception info formatting
+  - Fallback mechanisms
+- **Logger Configuration**: Tests for `get_logger()` function
+  - Logger name prefixing
+  - Log level configuration
+  - Handler and formatter attachment
+  - Non-propagation to root logger
+  - Idempotency
+
+### Agent Logging Integration (test_agent_logging.py - NEW MODULE)
+- **Lifecycle Logging**: Structured logging at key agent execution points (15+ tests)
+  - agent.step.start with agent_id, iteration, step_id
+  - agent.llm.complete with output_length and tools_detected
+  - agent.step.complete with status and execution metrics
+- **Tool Rejection Logging**: agent.tool.rejected with reason and context
+- **Parse Error Logging**: agent.pattern.parse_error for malformed patterns
+- **Error Logging**: agent.llm.error with exception info and stack traces
+- **JSON Output Format**: Validation of structured JSON log output
+- **Edge Cases**: Unicode handling and large output logging
 
 ## Writing Tests
 

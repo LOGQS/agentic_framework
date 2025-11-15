@@ -20,6 +20,7 @@ from agentic.events import (
     LLMCompleteEvent,
     StatusEvent,
     ToolStartEvent,
+    ToolDecisionEvent,
     ToolOutputEvent,
     ToolEndEvent,
     ContextWriteEvent,
@@ -160,6 +161,48 @@ class TestToolStartEvent:
             iteration=0
         )
         assert event.arguments == {}
+
+
+class TestToolDecisionEvent:
+    """Tests for ToolDecisionEvent."""
+
+    def test_tool_decision_event_accepted(self):
+        """Test creating ToolDecisionEvent for accepted tool."""
+        event = ToolDecisionEvent(
+            tool_name="test_tool",
+            call_id="test_id",
+            accepted=True,
+            verification_duration_ms=10.5
+        )
+        assert event.tool_name == "test_tool"
+        assert event.call_id == "test_id"
+        assert event.accepted is True
+        assert event.rejection_reason is None
+        assert event.verification_duration_ms == 10.5
+        assert event.type == "tool_decision"
+
+    def test_tool_decision_event_rejected(self):
+        """Test creating ToolDecisionEvent for rejected tool."""
+        event = ToolDecisionEvent(
+            tool_name="test_tool",
+            call_id="test_id",
+            accepted=False,
+            rejection_reason="User rejected",
+            verification_duration_ms=5.0
+        )
+        assert event.accepted is False
+        assert event.rejection_reason == "User rejected"
+        assert event.verification_duration_ms == 5.0
+
+    def test_tool_decision_event_with_step_id(self):
+        """Test ToolDecisionEvent with step_id."""
+        event = ToolDecisionEvent(
+            tool_name="tool",
+            call_id="id",
+            accepted=True,
+            step_id="step_123"
+        )
+        assert event.step_id == "step_123"
 
 
 class TestToolOutputEvent:
@@ -475,6 +518,7 @@ class TestEventTypes:
             (LLMCompleteEvent(full_text="t"), "llm_complete"),
             (StatusEvent(status=AgentStatus.OK), "status"),
             (ToolStartEvent("t", {}, 0), "tool_start"),
+            (ToolDecisionEvent("t", "id", True), "tool_decision"),
             (ToolOutputEvent("t", "o"), "tool_output"),
             (ToolEndEvent("t", ToolResult("t", "o", True)), "tool_end"),
             (ContextWriteEvent("k", "p", 1, 0), "context_write"),
@@ -809,7 +853,7 @@ class TestAllEventTypes:
         """Verify all event classes are included in AgentEvent type alias."""
         from agentic.events import (
             LLMTokenEvent, LLMCompleteEvent, StatusEvent,
-            ToolStartEvent, ToolOutputEvent, ToolEndEvent, ToolValidationEvent,
+            ToolStartEvent, ToolDecisionEvent, ToolOutputEvent, ToolEndEvent, ToolValidationEvent,
             ContextWriteEvent, ErrorEvent,
             PatternStartEvent, PatternContentEvent, PatternEndEvent,
             StepCompleteEvent, RetryEvent, RateLimitEvent, ContextHealthEvent
@@ -823,6 +867,7 @@ class TestAllEventTypes:
             LLMCompleteEvent("text"),
             StatusEvent(AgentStatus.OK),
             ToolStartEvent("tool", {}, 0),
+            ToolDecisionEvent("tool", "id", True),
             ToolOutputEvent("tool", "output"),
             ToolEndEvent("tool", ToolResult("tool", "out", True)),
             ToolValidationEvent("tool", []),

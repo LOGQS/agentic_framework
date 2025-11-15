@@ -13,70 +13,111 @@ from .core import SegmentType, ToolCall, ExtractedSegments, new_uuid
 MAX_JSON_SIZE = 1_000_000  # 1MB limit
 
 
-def _parse_tool_call(segment_text: str, iteration: int) -> ToolCall | None:
+def _parse_tool_call(
+    segment_text: str,
+    iteration: int,
+    expected_format: str | None = None
+) -> tuple[ToolCall | None, str | None]:
     """
-    Parse tool call from segment. Supports JSON or line-based format.
+    Parse tool call from segment with context-aware error reporting.
 
-    JSON format: {"name": "tool_name", "arguments": {...}}
-    Line format: name: tool_name / arguments: {...}
+    Supports JSON and line-based formats. Only reports errors when expected_format
+    is explicitly set, eliminating false positives.
+
+    Args:
+        segment_text: Raw segment content
+        iteration: Current iteration
+        expected_format: Expected format from pattern ("json", "line", "auto", or None)
+                        - "json": Only try JSON, error if fails
+                        - "line": Only try line format, error if fails
+                        - "auto": Try both silently (default behavior)
+                        - None: Skip parsing entirely
+
+    Returns:
+        (ToolCall | None, error_message | None)
+        - Successfully parsed: (ToolCall, None)
+        - Parse failed with expectations: (None, detailed_error)
+        - No expectations or not a tool call: (None, None)
     """
     try:
         if len(segment_text) > MAX_JSON_SIZE:
-            return None
+            return None, f"Tool call exceeds max size ({len(segment_text)} > {MAX_JSON_SIZE} bytes)"
 
-        # Try JSON format first
-        if segment_text.strip().startswith('{'):
-            data = json.loads(segment_text)
-            return ToolCall(
-                name=data.get("name", "unknown"),
-                arguments=data.get("arguments", {}),
-                raw_segment=segment_text,
-                iteration=iteration,
-                call_id=data.get("call_id", new_uuid())
-            )
+        # Default to "auto" if not specified
+        fmt = expected_format if expected_format is not None else "auto"
+
+        # Try JSON format
+        if fmt in ("json", "auto") and segment_text.strip().startswith('{'):
+            try:
+                data = json.loads(segment_text)
+                if "name" in data:
+                    tool_call = ToolCall(
+                        name=data["name"],
+                        arguments=data.get("arguments", {}),
+                        raw_segment=segment_text,
+                        iteration=iteration,
+                        call_id=data.get("call_id", new_uuid())
+                    )
+                    return tool_call, None
+                else:
+                    # Missing 'name' field
+                    if fmt == "json":
+                        return None, "Tool call JSON missing required 'name' field"
+            except json.JSONDecodeError as e:
+                if fmt == "json":
+                    return None, f"Invalid JSON in tool call: {str(e)}"
+                # fmt == "auto", try line format next
 
         # Try line-based format
-        lines = segment_text.split('\n')
-        name = None
-        arguments = {}
-        arguments_json_lines = []
-        in_arguments_section = False
+        if fmt in ("line", "auto"):
+            lines = segment_text.split('\n')
+            name = None
+            arguments = {}
+            arguments_json_lines = []
+            in_arguments_section = False
 
-        for line in lines:
-            line = line.strip()
+            for line in lines:
+                line = line.strip()
 
-            if line.lower().startswith("name:"):
-                name = line.split(":", 1)[1].strip()
-            elif line.lower().startswith("arguments:"):
-                args_value = line.split(":", 1)[1].strip()
-                if args_value.startswith("{"):
-                    arguments_json_lines.append(args_value)
-                    in_arguments_section = True
-                else:
-                    arguments = {}
-            elif in_arguments_section:
-                arguments_json_lines.append(line)
+                if line.lower().startswith("name:"):
+                    name = line.split(":", 1)[1].strip()
+                elif line.lower().startswith("arguments:"):
+                    args_value = line.split(":", 1)[1].strip()
+                    if args_value.startswith("{"):
+                        arguments_json_lines.append(args_value)
+                        in_arguments_section = True
+                    else:
+                        arguments = {}
+                elif in_arguments_section:
+                    arguments_json_lines.append(line)
 
-        if arguments_json_lines:
-            arguments_json = "\n".join(arguments_json_lines)
-            if arguments_json and len(arguments_json) <= MAX_JSON_SIZE:
-                try:
-                    arguments = json.loads(arguments_json)
-                except json.JSONDecodeError:
-                    arguments = {}
+            if arguments_json_lines:
+                arguments_json = "\n".join(arguments_json_lines)
+                if arguments_json and len(arguments_json) <= MAX_JSON_SIZE:
+                    try:
+                        arguments = json.loads(arguments_json)
+                    except json.JSONDecodeError:
+                        arguments = {}
 
-        if name:
-            return ToolCall(
-                name=name,
-                arguments=arguments,
-                raw_segment=segment_text,
-                iteration=iteration,
-                call_id=new_uuid()
-            )
+            if name:
+                tool_call = ToolCall(
+                    name=name,
+                    arguments=arguments,
+                    raw_segment=segment_text,
+                    iteration=iteration,
+                    call_id=new_uuid()
+                )
+                return tool_call, None
 
-        return None
-    except Exception:
-        return None
+        # Couldn't parse - report error only if format was explicitly expected
+        if fmt in ("json", "line"):
+            return None, f"Could not parse tool call in expected '{fmt}' format"
+
+        # fmt == "auto" or None - not a tool call, no error
+        return None, None
+
+    except Exception as e:
+        return None, f"Unexpected error parsing tool call: {str(e)}"
 
 
 @dataclass
@@ -87,6 +128,7 @@ class Pattern:
     end_tag: str
     segment_type: SegmentType
     greedy: bool = False
+    expected_format: str | None = None  # "json", "line", "auto" (try both), or None (skip tool parsing)
 
 
 @dataclass
@@ -150,7 +192,8 @@ class PatternRegistry:
                     "start_tag": p.start_tag,
                     "end_tag": p.end_tag,
                     "segment_type": p.segment_type.value,
-                    "greedy": p.greedy
+                    "greedy": p.greedy,
+                    "expected_format": p.expected_format
                 }
                 for p in pattern_set.patterns
             ]
@@ -165,7 +208,8 @@ class PatternRegistry:
                 start_tag=p["start_tag"],
                 end_tag=p["end_tag"],
                 segment_type=SegmentType(p["segment_type"]),
-                greedy=p.get("greedy", False)
+                greedy=p.get("greedy", False),
+                expected_format=p.get("expected_format")
             )
             for p in obj["patterns"]
         ]
@@ -196,9 +240,18 @@ class PatternExtractor:
                 extracted_ranges.append((start_pos, end_pos))
 
                 if pattern.segment_type == SegmentType.TOOL:
-                    tool_call = _parse_tool_call(segment_text, iteration)
+                    tool_call, parse_error = _parse_tool_call(
+                        segment_text,
+                        iteration,
+                        expected_format=pattern.expected_format
+                    )
                     if tool_call:
                         segments.tools.append(tool_call)
+                    elif parse_error:
+                        error_key = f"{pattern.name}_parse_error_{len(segments.parse_errors)}"
+                        segments.parse_errors[error_key] = (
+                            f"ERROR: {parse_error}\n\nContent:\n{segment_text}"
+                        )
 
                 elif pattern.segment_type == SegmentType.REASONING:
                     segments.reasoning.append(segment_text)
@@ -430,23 +483,15 @@ class StreamingPatternExtractor:
         self._pattern_set = pattern_set
         self._stream_content = stream_content
         self._max_buffer_size = max_buffer_size if max_buffer_size is not None else self.DEFAULT_MAX_BUFFER_SIZE
-        self._buffer = ""
 
-        # Track completed patterns by buffer position to avoid re-emission
-        self._emitted_complete_patterns: set[tuple[int, int, str]] = set()  # (start, end, pattern_name)
-
-        # Track active (incomplete) patterns for streaming content
-        self._active_patterns: dict[tuple[int, str], _ActivePattern] = {}  # (start_pos, pattern_name) -> ActivePattern
-
-        self._completed_segments = ExtractedSegments()
-        self._extracted_ranges: list[tuple[int, int]] = []
-        self._malformed_patterns: dict[str, str] = {}
-
-        # Pre-compile regexes for efficiency
+        # Pre-compile regexes for efficiency (immutable, doesn't need reset)
         self._compiled_regexes: dict[str, re.Pattern] = {}
         for pattern in self._pattern_set.patterns:
             regex_str = self._build_pattern_regex(pattern)
             self._compiled_regexes[pattern.name] = re.compile(regex_str, re.DOTALL)
+
+        # Initialize mutable state (will be reset for reuse)
+        self._reset_state()
 
     def feed_token(self, token: str) -> Iterator[Any]:
         """
@@ -464,20 +509,37 @@ class StreamingPatternExtractor:
                 f"Current: {len(self._buffer)}, token: {len(token)}"
             )
 
+        previous_len = len(self._buffer)
         self._buffer += token
+        buffer_len = len(self._buffer)
 
         for pattern in self._pattern_set.patterns:
             compiled_regex = self._compiled_regexes[pattern.name]
 
-            for match in compiled_regex.finditer(self._buffer):
-                match_key = (match.start(), match.end(), pattern.name)
+            need_scan = False
+            if pattern.end_tag:
+                window_start = max(0, previous_len - len(pattern.end_tag))
+                if pattern.end_tag in self._buffer[window_start:]:
+                    need_scan = True
+            else:
+                need_scan = True
+
+            if not need_scan:
+                continue
+
+            search_start = self._search_positions.get(pattern.name, 0)
+
+            for match in compiled_regex.finditer(self._buffer, search_start):
+                actual_start = match.start()
+                actual_end = match.end()
+                match_key = (actual_start, actual_end, pattern.name)
 
                 if match_key in self._emitted_complete_patterns:
                     continue
 
                 full_content = match.group(1).strip()
 
-                active_key = (match.start(), pattern.name)
+                active_key = (actual_start, pattern.name)
                 already_emitted_start = active_key in self._active_patterns
 
                 if not already_emitted_start:
@@ -485,9 +547,18 @@ class StreamingPatternExtractor:
 
                 tool_call = None
                 if pattern.segment_type == SegmentType.TOOL:
-                    tool_call = _parse_tool_call(full_content, 0)
+                    tool_call, parse_error = _parse_tool_call(
+                        full_content,
+                        0,
+                        expected_format=pattern.expected_format
+                    )
                     if tool_call:
                         self._completed_segments.tools.append(tool_call)
+                    elif parse_error:
+                        error_key = f"{pattern.name}_parse_error_{actual_start}"
+                        error_text = f"ERROR: {parse_error}\n\nContent:\n{full_content}"
+                        self._malformed_patterns[error_key] = error_text
+                        self._parse_errors[error_key] = error_text
                 elif pattern.segment_type == SegmentType.REASONING:
                     self._completed_segments.reasoning.append(full_content)
                 elif pattern.segment_type == SegmentType.RESPONSE:
@@ -499,10 +570,20 @@ class StreamingPatternExtractor:
                 yield ("pattern_end", pattern.name, pattern.segment_type.value, full_content, tool_call)
 
                 self._emitted_complete_patterns.add(match_key)
-                self._extracted_ranges.append((match.start(), match.end()))
+                self._extracted_ranges.append((actual_start, actual_end))
 
                 if active_key in self._active_patterns:
                     del self._active_patterns[active_key]
+
+            # Update search position for next iteration
+            # For patterns with end tags: search from near end of buffer (could have partial end tag)
+            # For patterns without end tags: this is unusual, but search from start to catch all occurrences
+            if pattern.end_tag:
+                self._search_positions[pattern.name] = max(0, buffer_len - len(pattern.end_tag))
+            else:
+                # Pattern without end tag - keep searching from 0 to find all occurrences
+                # This is edge case but prevents missing patterns
+                self._search_positions[pattern.name] = 0
 
         if self._stream_content:
             for event in self._stream_incomplete_patterns():
@@ -585,7 +666,13 @@ class StreamingPatternExtractor:
         for tool_call in self._completed_segments.tools:
             tool_call.iteration = iteration
 
-        return self._completed_segments, self._malformed_patterns
+        segments_result = self._completed_segments
+        malformed_result = dict(self._malformed_patterns)
+        segments_result.parse_errors = dict(self._parse_errors)
+
+        self._reset_state()
+
+        return segments_result, malformed_result
 
     def _extract_remaining_from_buffer(self) -> str:
         """Extract text not covered by extracted ranges."""
@@ -605,3 +692,21 @@ class StreamingPatternExtractor:
             remaining_parts.append(self._buffer[last_end:])
 
         return "\n".join(part.strip() for part in remaining_parts if part.strip())
+
+    def _reset_state(self) -> None:
+        """
+        Reset extractor state for reuse.
+
+        Called in __init__ and finalize() to ensure clean state.
+        Makes the extractor reusable without state corruption risk.
+        """
+        self._buffer = ""
+        self._emitted_complete_patterns: set[tuple[int, int, str]] = set()
+        self._active_patterns: dict[tuple[int, str], _ActivePattern] = {}
+        self._completed_segments = ExtractedSegments()
+        self._extracted_ranges: list[tuple[int, int]] = []
+        self._malformed_patterns: dict[str, str] = {}
+        self._parse_errors: dict[str, str] = {}
+        self._search_positions: dict[str, int] = {
+            pattern.name: 0 for pattern in self._pattern_set.patterns
+        }

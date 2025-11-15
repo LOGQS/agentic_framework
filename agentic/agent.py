@@ -7,16 +7,17 @@ import time
 import asyncio
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 
-from .core import AgentConfig, AgentStatus, AgentStepResult, ExtractedSegments, ToolResult, ToolCall, ProcessingMode, new_uuid, PromptType, serialize_tool_output
+from .core import AgentConfig, AgentStatus, AgentStepResult, ExtractedSegments, ToolResult, ToolCall, ToolExecutionDecision, ProcessingMode, new_uuid, PromptType, serialize_tool_output
 from .context import ContextManager
 from .patterns import PatternRegistry, PatternExtractor, StreamingPatternExtractor
 from .tools import ToolRegistry
 from .events import (
     AgentEvent, LLMTokenEvent, LLMCompleteEvent, StatusEvent,
-    ToolStartEvent, ToolEndEvent, ToolValidationEvent,
+    ToolStartEvent, ToolEndEvent, ToolValidationEvent, ToolDecisionEvent,
     ContextWriteEvent, ErrorEvent, StepCompleteEvent,
     PatternStartEvent, PatternContentEvent, PatternEndEvent
 )
+from .logging_util import get_logger
 
 if TYPE_CHECKING:
     from .validation import ValidationError
@@ -107,6 +108,9 @@ class Agent:
         return self._provider
 
 
+logger = get_logger(__name__)
+
+
 class AgentRunner:
     """
     Executes agent steps: prompt building, LLM generation, tool execution, context updates.
@@ -115,7 +119,7 @@ class AgentRunner:
     def __init__(self, agent: Agent):
         self._agent = agent
 
-    def _create_tool_not_allowed_error(self, tool_name: str, iteration: int) -> ToolResult:
+    def _create_tool_not_allowed_error(self, tool_name: str, iteration: int, call_id: str = "") -> ToolResult:
         """Create error result for tool not in allowed list."""
         return ToolResult(
             name=tool_name,
@@ -123,10 +127,11 @@ class AgentRunner:
             success=False,
             error_message=f"Tool '{tool_name}' not in allowed list",
             execution_time=0.0,
-            iteration=iteration
+            iteration=iteration,
+            call_id=call_id
         )
 
-    def _create_tool_not_found_error(self, tool_name: str, iteration: int) -> ToolResult:
+    def _create_tool_not_found_error(self, tool_name: str, iteration: int, call_id: str = "") -> ToolResult:
         """Create error result for tool not found in registry."""
         return ToolResult(
             name=tool_name,
@@ -134,14 +139,16 @@ class AgentRunner:
             success=False,
             error_message=f"Tool '{tool_name}' not found in registry",
             execution_time=0.0,
-            iteration=iteration
+            iteration=iteration,
+            call_id=call_id
         )
 
     def _create_tool_validation_error(
         self,
         tool_name: str,
         errors: list["ValidationError"],
-        iteration: int
+        iteration: int,
+        call_id: str = ""
     ) -> ToolResult:
         """Create error result for failed validation."""
         error_msg = "; ".join([f"{e.field}: {e.message}" for e in errors])
@@ -151,7 +158,8 @@ class AgentRunner:
             success=False,
             error_message=f"Argument validation failed: {error_msg}",
             execution_time=0.0,
-            iteration=iteration
+            iteration=iteration,
+            call_id=call_id
         )
 
     def _resolve_tool_name(self, public_name: str) -> str:
@@ -201,6 +209,127 @@ class AgentRunner:
                 final_result = event.result
         return final_result
 
+    async def _should_execute_tool(
+        self,
+        tool_call: ToolCall,
+        config: AgentConfig,
+        step_id: str
+    ) -> ToolExecutionDecision:
+        """
+        Determine if a tool should be executed and create decision record.
+
+        Handles verification workflow if on_tool_detected callback is configured.
+        Tracks verification duration and creates complete decision object.
+        Supports timeout via tool_verification_timeout config.
+
+        Returns:
+            ToolExecutionDecision with acceptance status and metadata
+        """
+        verification_required = config.on_tool_detected is not None
+
+        # Create decision object
+        decision = ToolExecutionDecision(
+            tool_call=tool_call,
+            verification_required=verification_required,
+            accepted=True,  # Default to accepted if no callback
+            rejection_reason=None,
+            verification_duration_ms=0.0,
+            executed=False,
+            result=None
+        )
+
+        if verification_required:
+            start_time = time.time()
+
+            logger.debug("tool.verification.start", extra={
+                "tool_name": tool_call.name,
+                "call_id": tool_call.call_id,
+                "step_id": step_id
+            })
+
+            try:
+                loop = asyncio.get_event_loop()
+                callback_coro = loop.run_in_executor(None, config.on_tool_detected, tool_call)
+
+                if config.tool_verification_timeout is not None:
+                    accepted = await asyncio.wait_for(callback_coro, timeout=config.tool_verification_timeout)
+                else:
+                    accepted = await callback_coro
+
+                decision.verification_duration_ms = (time.time() - start_time) * 1000
+                decision.accepted = accepted
+
+                if not accepted:
+                    decision.rejection_reason = "Rejected by callback"
+
+            except asyncio.TimeoutError:
+                decision.verification_duration_ms = (time.time() - start_time) * 1000
+                decision.accepted = config.tool_verification_on_timeout == "accept"
+                decision.rejection_reason = f"Verification timeout after {config.tool_verification_timeout}s"
+
+                logger.warning("tool.verification.timeout", extra={
+                    "tool_name": tool_call.name,
+                    "call_id": tool_call.call_id,
+                    "timeout_seconds": config.tool_verification_timeout,
+                    "on_timeout_action": config.tool_verification_on_timeout
+                })
+
+            except Exception as e:
+                decision.verification_duration_ms = (time.time() - start_time) * 1000
+                decision.accepted = False
+                decision.rejection_reason = f"Callback exception: {str(e)}"
+
+                logger.error("tool.verification.error", extra={
+                    "tool_name": tool_call.name,
+                    "call_id": tool_call.call_id,
+                    "error": str(e),
+                    "error_type": type(e).__name__
+                }, exc_info=True)
+
+        return decision
+
+    def _determine_step_status(
+        self,
+        error_message: str | None,
+        tool_decisions: list[ToolExecutionDecision],
+        segments: ExtractedSegments
+    ) -> AgentStatus:
+        """
+        Determine final agent status based on tool decisions.
+
+        Uses rich decision data instead of simple counts for accurate status.
+
+        Args:
+            error_message: Error message if any error occurred
+            tool_decisions: All tool execution decisions
+            segments: Extracted segments from LLM output
+
+        Returns:
+            AgentStatus enum value
+        """
+        if error_message:
+            return AgentStatus.ERROR
+
+        # Analyze decisions
+        accepted_count = sum(1 for d in tool_decisions if d.accepted)
+        rejected_count = sum(1 for d in tool_decisions if not d.accepted)
+        executed_count = sum(1 for d in tool_decisions if d.executed)
+        pending_count = sum(1 for d in tool_decisions if d.accepted and not d.executed)
+
+        # Status priority order
+        if executed_count > 0:
+            return AgentStatus.TOOL_EXECUTED
+        elif pending_count > 0:
+            # Tools accepted but not yet executed (concurrent mode)
+            return AgentStatus.WAITING_FOR_TOOL
+        elif rejected_count > 0 and accepted_count == 0:
+            # All tools rejected
+            return AgentStatus.TOOLS_REJECTED
+        elif not segments.response and not tool_decisions:
+            return AgentStatus.DONE
+        else:
+            return AgentStatus.OK
+
     async def step_stream(
         self,
         user_input: str | None = None,
@@ -230,6 +359,13 @@ class AgentRunner:
         step_id = new_uuid()
         prompt = self._build_prompt(user_input)
 
+        logger.debug("agent.step.start", extra={
+            "agent_id": config.agent_id,
+            "iteration": current_iteration,
+            "step_id": step_id,
+            "processing_mode": effective_mode.value if effective_mode else None
+        })
+
         yield StatusEvent(AgentStatus.OK, "Starting agent step", step_id=step_id)
 
         pattern_set_name = config.pattern_set or "default"
@@ -245,6 +381,7 @@ class AgentRunner:
 
         raw_output_buffer = []
         detected_tools: list[ToolCall] = []
+        tool_decisions: list[ToolExecutionDecision] = []  # Track full tool lifecycle
         tool_execution_tasks: list[asyncio.Task] = []
         tool_results: list[ToolResult] = []
         pattern_counters: dict[str, int] = {}
@@ -309,21 +446,28 @@ class AgentRunner:
                                 detected_tools.append(tool_call)
 
                                 if config.concurrent_tool_execution:
-                                    should_execute = True
+                                    if config.on_tool_detected is not None:
+                                        yield StatusEvent(
+                                            AgentStatus.WAITING_FOR_VERIFICATION,
+                                            f"Awaiting verification for tool '{tool_call.name}'",
+                                            step_id=step_id
+                                        )
 
-                                    if config.on_tool_detected:
-                                        try:
-                                            should_execute = config.on_tool_detected(tool_call)
-                                        except Exception as e:
-                                            yield ErrorEvent(
-                                                error_type="tool_callback_error",
-                                                error_message=f"on_tool_detected callback failed: {str(e)}",
-                                                recoverable=True,
-                                                step_id=step_id
-                                            )
-                                            should_execute = False
+                                    # Create and track decision
+                                    decision = await self._should_execute_tool(tool_call, config, step_id)
+                                    tool_decisions.append(decision)
 
-                                    if should_execute:
+                                    # Emit decision event
+                                    yield ToolDecisionEvent(
+                                        tool_name=tool_call.name,
+                                        call_id=tool_call.call_id,
+                                        accepted=decision.accepted,
+                                        rejection_reason=decision.rejection_reason,
+                                        verification_duration_ms=decision.verification_duration_ms,
+                                        step_id=step_id
+                                    )
+
+                                    if decision.accepted:
                                         yield StatusEvent(AgentStatus.WAITING_FOR_TOOL, f"Starting concurrent execution of tool '{tool_call.name}'", step_id=step_id)
                                         task = asyncio.create_task(
                                             self._execute_single_tool_concurrent(
@@ -333,13 +477,31 @@ class AgentRunner:
                                         )
                                         tool_execution_tasks.append(task)
                                     else:
+                                        reason_text = decision.rejection_reason or "No reason provided"
+                                        logger.debug("agent.tool.rejected", extra={
+                                            "agent_id": config.agent_id,
+                                            "iteration": current_iteration,
+                                            "step_id": step_id,
+                                            "tool_name": tool_call.name,
+                                            "reason": reason_text,
+                                            "verification_duration_ms": decision.verification_duration_ms
+                                        })
                                         yield StatusEvent(
-                                            AgentStatus.WAITING_FOR_TOOL,
-                                            f"Tool '{tool_call.name}' execution rejected by callback",
+                                            AgentStatus.OK,
+                                            f"Tool '{tool_call.name}' rejected: {reason_text}",
                                             step_id=step_id
                                         )
 
             raw_output = "".join(raw_output_buffer)
+
+            logger.debug("agent.llm.complete", extra={
+                "agent_id": config.agent_id,
+                "iteration": current_iteration,
+                "step_id": step_id,
+                "output_length": len(raw_output),
+                "tools_detected": len(detected_tools)
+            })
+
             yield LLMCompleteEvent(raw_output, step_id=step_id)
 
             if tool_execution_tasks:
@@ -358,6 +520,14 @@ class AgentRunner:
                 if not task.done():
                     task.cancel()
 
+            logger.error("agent.llm.error", extra={
+                "agent_id": config.agent_id,
+                "iteration": current_iteration,
+                "step_id": step_id,
+                "error": str(e),
+                "error_type": type(e).__name__
+            }, exc_info=True)
+
             yield ErrorEvent("llm_error", str(e), recoverable=False, step_id=step_id)
             yield StepCompleteEvent(AgentStepResult(
                 status=AgentStatus.ERROR,
@@ -372,9 +542,13 @@ class AgentRunner:
 
         if pattern_extractor:
             segments, malformed_patterns = pattern_extractor.finalize(iteration=current_iteration)
+            parse_error_keys = set(segments.parse_errors.keys()) if segments.parse_errors else set()
 
             if malformed_patterns:
                 for pattern_name, partial_content in malformed_patterns.items():
+                    if pattern_name in parse_error_keys:
+                        continue
+
                     yield ErrorEvent(
                         error_type="malformed_pattern",
                         error_message=f"Pattern '{pattern_name}' missing end tag",
@@ -390,29 +564,75 @@ class AgentRunner:
             segments = ExtractedSegments(response=raw_output)
             malformed_patterns = None
 
+        if segments.parse_errors:
+            for error_key, error_text in segments.parse_errors.items():
+                preview_line = ""
+                if error_text:
+                    lines = error_text.strip().splitlines()
+                    if lines:
+                        preview_line = lines[0]
+                        if len(preview_line) > 200:
+                            preview_line = f"{preview_line[:197]}..."
+                    else:
+                        preview_line = "Unknown parse error"
+                else:
+                    preview_line = "Unknown parse error"
+
+                logger.warning("agent.pattern.parse_error", extra={
+                    "agent_id": config.agent_id,
+                    "iteration": current_iteration,
+                    "step_id": step_id,
+                    "pattern_key": error_key
+                })
+
+                yield ErrorEvent(
+                    error_type="pattern_parse_error",
+                    error_message=f"Pattern '{error_key}' parse error: {preview_line}",
+                    recoverable=True,
+                    partial_data=error_text,
+                    step_id=step_id
+                )
+
         if not config.concurrent_tool_execution and detected_tools:
             tools_to_execute = []
             for tool_call in detected_tools:
-                should_execute = True
+                # Emit verification status if verification required
+                if config.on_tool_detected is not None:
+                    yield StatusEvent(
+                        AgentStatus.WAITING_FOR_VERIFICATION,
+                        f"Awaiting verification for tool '{tool_call.name}'",
+                        step_id=step_id
+                    )
 
-                if config.on_tool_detected:
-                    try:
-                        should_execute = config.on_tool_detected(tool_call)
-                    except Exception as e:
-                        yield ErrorEvent(
-                            error_type="tool_callback_error",
-                            error_message=f"on_tool_detected callback failed: {str(e)}",
-                            recoverable=True,
-                            step_id=step_id
-                        )
-                        should_execute = False
+                # Create and track decision
+                decision = await self._should_execute_tool(tool_call, config, step_id)
+                tool_decisions.append(decision)
 
-                if should_execute:
+                # Emit decision event
+                yield ToolDecisionEvent(
+                    tool_name=tool_call.name,
+                    call_id=tool_call.call_id,
+                    accepted=decision.accepted,
+                    rejection_reason=decision.rejection_reason,
+                    verification_duration_ms=decision.verification_duration_ms,
+                    step_id=step_id
+                )
+
+                if decision.accepted:
                     tools_to_execute.append(tool_call)
                 else:
+                    reason_text = decision.rejection_reason or "No reason provided"
+                    logger.debug("agent.tool.rejected", extra={
+                        "agent_id": config.agent_id,
+                        "iteration": current_iteration,
+                        "step_id": step_id,
+                        "tool_name": tool_call.name,
+                        "reason": reason_text,
+                        "verification_duration_ms": decision.verification_duration_ms
+                    })
                     yield StatusEvent(
-                        AgentStatus.WAITING_FOR_TOOL,
-                        f"Tool '{tool_call.name}' execution rejected by callback",
+                        AgentStatus.OK,
+                        f"Tool '{tool_call.name}' rejected: {reason_text}",
                         step_id=step_id
                     )
 
@@ -441,11 +661,24 @@ class AgentRunner:
                         step_id=step_id
                     )
 
+        # Match tool results back to decisions and mark as executed
+        for tool_result in tool_results:
+            for decision in tool_decisions:
+                if tool_result.call_id and decision.tool_call.call_id:
+                    if tool_result.call_id == decision.tool_call.call_id:
+                        decision.executed = True
+                        decision.result = tool_result
+                        break
+                elif not tool_result.call_id and not decision.tool_call.call_id:
+                    if decision.tool_call.name == tool_result.name and not decision.executed:
+                        decision.executed = True
+                        decision.result = tool_result
+                        break
+
         error_message = None
         error_type = None
 
         if tool_execution_failed:
-            status = AgentStatus.ERROR
             failed_tools = [tr for tr in tool_results if not tr.success]
             if failed_tools:
                 first_failure = failed_tools[0]
@@ -461,14 +694,18 @@ class AgentRunner:
                 if len(failed_tools) > 1:
                     error_message = f"{error_message} (and {len(failed_tools) - 1} other tool(s) failed)"
             yield ErrorEvent(error_type, error_message, recoverable=False, step_id=step_id)
-        elif detected_tools and tool_results:
-            status = AgentStatus.TOOL_EXECUTED
-        elif detected_tools and not tool_results:
-            status = AgentStatus.WAITING_FOR_TOOL
-        elif not segments.response and not detected_tools:
-            status = AgentStatus.DONE
-        else:
-            status = AgentStatus.OK
+
+        status = self._determine_step_status(error_message, tool_decisions, segments)
+
+        logger.debug("agent.step.complete", extra={
+            "agent_id": config.agent_id,
+            "iteration": current_iteration,
+            "step_id": step_id,
+            "status": status.value,
+            "tools_executed": len(tool_results),
+            "tools_succeeded": sum(1 for tr in tool_results if tr.success),
+            "has_error": error_message is not None
+        })
 
         yield StatusEvent(status, "Agent step complete", step_id=step_id)
 
@@ -480,7 +717,8 @@ class AgentRunner:
             iteration=current_iteration,
             error_message=error_message,
             error_type=error_type,
-            partial_malformed_patterns=malformed_patterns
+            partial_malformed_patterns=malformed_patterns,
+            tool_decisions=tool_decisions
         )
         yield StepCompleteEvent(final_result, step_id=step_id)
 
@@ -493,6 +731,12 @@ class AgentRunner:
             current_iteration = self._agent.context.next_iteration()
         else:
             current_iteration = self._agent.context.get_iteration()
+
+        logger.debug("agent.step.start", extra={
+            "agent_id": config.agent_id,
+            "iteration": current_iteration,
+            "processing_mode": effective_mode.value if effective_mode else None
+        })
 
         prompt = self._build_prompt(user_input)
 
@@ -510,6 +754,13 @@ class AgentRunner:
             )
 
         segments = self._extract_segments(raw_output, current_iteration)
+
+        logger.debug("agent.llm.complete", extra={
+            "agent_id": config.agent_id,
+            "iteration": current_iteration,
+            "output_length": len(raw_output),
+            "tools_detected": len(segments.tools)
+        })
 
         tool_results = []
         tool_execution_failed = False
@@ -546,6 +797,14 @@ class AgentRunner:
             status = AgentStatus.DONE
         else:
             status = AgentStatus.OK
+
+        logger.debug("agent.step.complete", extra={
+            "agent_id": config.agent_id,
+            "iteration": current_iteration,
+            "status": status.value,
+            "tools_executed": len([tr for tr in tool_results if tr.success]),
+            "has_error": error_message is not None
+        })
 
         return AgentStepResult(
             status=status,
@@ -622,7 +881,7 @@ class AgentRunner:
             internal_name = self._resolve_tool_name(tool_call.name)
 
             if internal_name not in config.tools_allowed:
-                result = self._create_tool_not_allowed_error(internal_name, iteration)
+                result = self._create_tool_not_allowed_error(internal_name, iteration, tool_call.call_id)
                 yield ErrorEvent("tool_not_allowed", result.error_message, recoverable=True, step_id=step_id)
                 yield ToolEndEvent(internal_name, result, tool_call.call_id, step_id=step_id)
                 self._agent.context.set(tool_state_key, b"failed", iteration=iteration)
@@ -631,7 +890,7 @@ class AgentRunner:
 
             tool = self._agent.tools.get(internal_name)
             if tool is None:
-                result = self._create_tool_not_found_error(internal_name, iteration)
+                result = self._create_tool_not_found_error(internal_name, iteration, tool_call.call_id)
                 yield ErrorEvent("tool_not_found", result.error_message, recoverable=True, step_id=step_id)
                 yield ToolEndEvent(internal_name, result, tool_call.call_id, step_id=step_id)
                 self._agent.context.set(tool_state_key, b"failed", iteration=iteration)
@@ -641,7 +900,7 @@ class AgentRunner:
             if config.validate_tool_arguments:
                 is_valid, validation_errors = tool.validate_arguments(tool_call.arguments)
                 if not is_valid:
-                    result = self._create_tool_validation_error(internal_name, validation_errors, iteration)
+                    result = self._create_tool_validation_error(internal_name, validation_errors, iteration, tool_call.call_id)
                     yield ErrorEvent("tool_validation_error", result.error_message, recoverable=True, step_id=step_id)
                     yield ToolValidationEvent(internal_name,
                         [{"field": e.field, "message": e.message, "value": e.value} for e in validation_errors],
@@ -678,7 +937,8 @@ class AgentRunner:
                     success=True,
                     error_message=None,
                     execution_time=execution_time,
-                    iteration=iteration
+                    iteration=iteration,
+                    call_id=tool_call.call_id
                 )
                 yield ToolEndEvent(tool_call.name, result, tool_call.call_id, step_id=step_id)
                 self._agent.context.set(tool_state_key, b"finished", iteration=iteration)
@@ -692,7 +952,8 @@ class AgentRunner:
                     success=False,
                     error_message=f"Tool execution failed: {str(e)}",
                     execution_time=execution_time,
-                    iteration=iteration
+                    iteration=iteration,
+                    call_id=tool_call.call_id
                 )
                 yield ErrorEvent("tool_execution_error", result.error_message, recoverable=True, step_id=step_id)
                 yield ToolEndEvent(tool_call.name, result, tool_call.call_id, step_id=step_id)
@@ -725,7 +986,7 @@ class AgentRunner:
         internal_name = self._resolve_tool_name(tool_call.name)
 
         if internal_name not in config.tools_allowed:
-            result = self._create_tool_not_allowed_error(internal_name, iteration)
+            result = self._create_tool_not_allowed_error(internal_name, iteration, tool_call.call_id)
             await event_queue.put(ErrorEvent("tool_not_allowed", result.error_message, recoverable=True, step_id=step_id))
             await event_queue.put(ToolEndEvent(internal_name, result, tool_call.call_id, step_id=step_id))
             results_list.append(result)
@@ -736,7 +997,7 @@ class AgentRunner:
 
         tool = self._agent.tools.get(internal_name)
         if tool is None:
-            result = self._create_tool_not_found_error(internal_name, iteration)
+            result = self._create_tool_not_found_error(internal_name, iteration, tool_call.call_id)
             await event_queue.put(ErrorEvent("tool_not_found", result.error_message, recoverable=True, step_id=step_id))
             await event_queue.put(ToolEndEvent(internal_name, result, tool_call.call_id, step_id=step_id))
             results_list.append(result)
@@ -748,7 +1009,7 @@ class AgentRunner:
         if config.validate_tool_arguments:
             is_valid, validation_errors = tool.validate_arguments(tool_call.arguments)
             if not is_valid:
-                result = self._create_tool_validation_error(internal_name, validation_errors, iteration)
+                result = self._create_tool_validation_error(internal_name, validation_errors, iteration, tool_call.call_id)
                 await event_queue.put(ErrorEvent("tool_validation_error", result.error_message, recoverable=True, step_id=step_id))
                 await event_queue.put(ToolValidationEvent(internal_name,
                     [{"field": e.field, "message": e.message, "value": e.value} for e in validation_errors],
@@ -785,7 +1046,8 @@ class AgentRunner:
                 success=True,
                 error_message=None,
                 execution_time=execution_time,
-                iteration=iteration
+                iteration=iteration,
+                call_id=tool_call.call_id
             )
             await event_queue.put(ToolEndEvent(tool_call.name, result, tool_call.call_id, step_id=step_id))
             results_list.append(result)
@@ -801,7 +1063,8 @@ class AgentRunner:
                 success=False,
                 error_message=f"Tool execution failed: {str(e)}",
                 execution_time=execution_time,
-                iteration=iteration
+                iteration=iteration,
+                call_id=tool_call.call_id
             )
             await event_queue.put(ErrorEvent("tool_execution_error", result.error_message, recoverable=True, step_id=step_id))
             await event_queue.put(ToolEndEvent(tool_call.name, result, tool_call.call_id, step_id=step_id))

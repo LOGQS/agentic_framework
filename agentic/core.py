@@ -32,8 +32,10 @@ class SegmentType(Enum):
 class AgentStatus(Enum):
     """Status of agent execution."""
     OK = "ok"
+    WAITING_FOR_VERIFICATION = "waiting_for_verification"  # Tool awaiting accept/reject decision
     WAITING_FOR_TOOL = "waiting_for_tool"
     TOOL_EXECUTED = "tool_executed"
+    TOOLS_REJECTED = "tools_rejected"  # All detected tools were rejected
     VALIDATION_ERROR = "validation_error"
     DONE = "done"
     ERROR = "error"
@@ -64,6 +66,27 @@ class ToolResult:
     error_message: str | None = None
     execution_time: float = 0.0
     iteration: int = 0
+    call_id: str = ""
+
+
+@dataclass
+class ToolExecutionDecision:
+    """
+    Tracks complete lifecycle of a detected tool call.
+
+    Provides transparency into verification and execution phases.
+    """
+    tool_call: ToolCall
+
+    # Verification phase (if on_tool_detected callback is set)
+    verification_required: bool
+    accepted: bool
+    rejection_reason: str | None = None
+    verification_duration_ms: float = 0.0
+
+    # Execution phase
+    executed: bool = False
+    result: ToolResult | None = None
 
 
 def serialize_tool_output(output: Any) -> Any:
@@ -106,6 +129,7 @@ class ExtractedSegments:
     tools: list[ToolCall] = field(default_factory=list)
     reasoning: list[str] = field(default_factory=list)
     response: str | None = None
+    parse_errors: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -119,6 +143,7 @@ class AgentStepResult:
     error_message: str | None = None  # Populated when status is ERROR
     error_type: str | None = None  # e.g., "llm_error", "tool_execution_error", "tool_not_found"
     partial_malformed_patterns: dict[str, str] | None = None  # Malformed pattern content (live DB updates reverted, kept in-memory only)
+    tool_decisions: list[ToolExecutionDecision] = field(default_factory=list)  # Full tool lifecycle tracking
 
 
 @dataclass
@@ -137,10 +162,19 @@ class AgentConfig:
     processing_mode: ProcessingMode | None = None  # None means inherit from parent
     incremental_context_writes: bool = False
     stream_pattern_content: bool = False
-    on_tool_detected: Any = None  # Callable[[ToolCall], bool]
+    on_tool_detected: Any = None  # Callable[[ToolCall], bool] - if set, enables verification workflow
     concurrent_tool_execution: bool = False
     max_partial_buffer_size: int = 10_000_000
     prompt_builder: Callable[["ContextManager", "AgentConfig", str | None], PromptType] | None = None
+    tool_verification_timeout: float | None = None  # Seconds to wait for on_tool_detected; None = indefinite
+    tool_verification_on_timeout: str = "reject"  # "reject" | "accept" - what to do if verification times out
+
+    def __post_init__(self):
+        """Validate configuration values."""
+        if self.tool_verification_on_timeout not in ("accept", "reject"):
+            raise ValueError(
+                f"tool_verification_on_timeout must be 'accept' or 'reject', got: {self.tool_verification_on_timeout!r}"
+            )
 
 
 def now_timestamp() -> float:
