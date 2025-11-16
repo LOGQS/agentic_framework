@@ -146,33 +146,27 @@ result = runner.step(user_input, processing_mode=ProcessingMode.THREAD)
                         <td>Pattern set to use</td>
                     </tr>
                     <tr>
-                        <td><code>system_prompt</code></td>
-                        <td>str</td>
-                        <td>""</td>
-                        <td>System prompt</td>
-                    </tr>
-                    <tr>
                         <td><code>concurrent_tool_execution</code></td>
                         <td>bool</td>
                         <td>False</td>
                         <td>Execute tools concurrently</td>
                     </tr>
                     <tr>
-                        <td><code>verify_tool_calls</code></td>
-                        <td>bool</td>
-                        <td>False</td>
-                        <td>Enable tool verification</td>
+                        <td><code>max_partial_buffer_size</code></td>
+                        <td>int</td>
+                        <td>10_000_000</td>
+                        <td>Maximum buffer size for streaming patterns</td>
                     </tr>
                     <tr>
                         <td><code>input_mapping</code></td>
-                        <td>dict[str, str]</td>
-                        <td>{}</td>
+                        <td>list[dict[str, Any]]</td>
+                        <td>[]</td>
                         <td>Context key mappings</td>
                     </tr>
                     <tr>
                         <td><code>output_mapping</code></td>
-                        <td>dict[str, str]</td>
-                        <td>{}</td>
+                        <td>list[tuple[str, str]]</td>
+                        <td>[]</td>
                         <td>Output storage mappings</td>
                     </tr>
                 </tbody>
@@ -182,23 +176,33 @@ result = runner.step(user_input, processing_mode=ProcessingMode.THREAD)
             <p>Execution status enumeration.</p>
             <ul>
                 <li><code>OK</code> - Normal execution</li>
+                <li><code>WAITING_FOR_VERIFICATION</code> - Tool awaiting accept/reject decision</li>
+                <li><code>WAITING_FOR_TOOL</code> - Tool execution in progress</li>
+                <li><code>TOOL_EXECUTED</code> - Tool executed successfully</li>
+                <li><code>TOOLS_REJECTED</code> - All detected tools were rejected</li>
+                <li><code>VALIDATION_ERROR</code> - Validation error occurred</li>
                 <li><code>DONE</code> - Completed successfully</li>
                 <li><code>ERROR</code> - Error occurred</li>
             </ul>
 
             <h3>AgentStepResult</h3>
             <p>Result from a single agent step.</p>
-            <pre><code>result.status           <span class="comment"># AgentStatus</span>
-result.raw_output       <span class="comment"># Complete LLM output</span>
-result.segments         <span class="comment"># ExtractedSegments</span>
-result.tool_results     <span class="comment"># list[ToolResult]</span>
-result.iteration        <span class="comment"># int</span></code></pre>
+            <pre><code>result.status                        <span class="comment"># AgentStatus</span>
+result.raw_output                    <span class="comment"># Complete LLM output</span>
+result.segments                      <span class="comment"># ExtractedSegments</span>
+result.tool_results                  <span class="comment"># list[ToolResult]</span>
+result.iteration                     <span class="comment"># int</span>
+result.error_message                 <span class="comment"># str | None</span>
+result.error_type                    <span class="comment"># str | None</span>
+result.partial_malformed_patterns    <span class="comment"># dict[str, str] | None</span>
+result.tool_decisions                <span class="comment"># list[ToolExecutionDecision]</span></code></pre>
 
             <h3>ExtractedSegments</h3>
             <p>Structured segments from LLM output.</p>
             <pre><code>segments.tools          <span class="comment"># list[ToolCall]</span>
 segments.reasoning      <span class="comment"># list[str]</span>
-segments.response       <span class="comment"># str</span></code></pre>
+segments.response       <span class="comment"># str | None</span>
+segments.parse_errors   <span class="comment"># dict[str, str]</span></code></pre>
 
             <h2>Context Module</h2>
             <p>Versioned key-value storage with iteration tracking.</p>
@@ -207,6 +211,12 @@ segments.response       <span class="comment"># str</span></code></pre>
             <p>Manages versioned context state.</p>
             <pre><code><span class="comment"># Set value (creates new version)</span>
 context.set(<span class="string">"key"</span>, <span class="string">"value"</span>)
+
+<span class="comment"># Update value (overwrites current version, no new version)</span>
+context.update(<span class="string">"key"</span>, <span class="string">"value"</span>)
+
+<span class="comment"># Delete key (marks as deleted)</span>
+context.delete(<span class="string">"key"</span>)
 
 <span class="comment"># Get as UTF-8 string (most common)</span>
 value = context.get(<span class="string">"key"</span>)
@@ -251,6 +261,7 @@ tool = create_tool(
     func=my_tool,
     description=<span class="string">"Tool description"</span>,
     input_schema={<span class="string">"validator"</span>: <span class="string">"simple"</span>, ...},
+    output_schema={<span class="string">"validator"</span>: <span class="string">"simple"</span>, ...},
     timeout_seconds=10.0,
     processing_mode=ProcessingMode.THREAD
 )</code></pre>
@@ -268,6 +279,8 @@ tool = create_tool(
             <pre><code>tools = ToolRegistry()
 tools.register(tool)
 tools.exists(<span class="string">"tool_name"</span>)
+tool = tools.get(<span class="string">"tool_name"</span>)  <span class="comment"># Get tool by name (returns Tool | None)</span>
+tools.unregister(<span class="string">"tool_name"</span>)  <span class="comment"># Remove tool (returns bool)</span>
 all_tools = tools.list()
 definitions = tools.get_definitions()</code></pre>
 
@@ -330,7 +343,8 @@ config = LogicConfig(
             pattern_set=<span class="string">"default"</span>,
             pattern_name=<span class="string">"done"</span>,
             match_type=<span class="string">"contains"</span>,
-            target=<span class="string">"response"</span>
+            target=<span class="string">"response"</span>,
+            evaluation_point=<span class="string">"auto"</span>  <span class="comment"># "auto" | "llm_chunk" | "llm_complete" | "step_complete" etc.</span>
         )
     ]
 )
@@ -415,30 +429,77 @@ stop_on_error(runner, context, patterns)</code></pre>
             <h2>Resilience Module</h2>
             <p>Retry logic and rate limiting.</p>
 
-            <h3>with_retry</h3>
-            <p>Wrap any async function with retry logic.</p>
-            <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> with_retry, RetryConfig
+            <h3>retry_stream</h3>
+            <p>Wrap any async iterator with retry logic.</p>
+            <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> retry_stream, RetryConfig
 
-resilient_func = with_retry(
-    my_async_func,
-    RetryConfig(
+<span class="keyword">async for</span> item <span class="keyword">in</span> retry_stream(
+    stream_fn=my_async_generator,
+    config=RetryConfig(
         max_attempts=3,
-        initial_delay=1.0,
+        base_delay=1.0,
         max_delay=60.0,
-        exponential_base=2.0,
+        backoff=<span class="string">"exponential"</span>,
         jitter=<span class="keyword">True</span>,
-        retryable_exceptions=(TimeoutError, ConnectionError)
-    )
-)</code></pre>
+        retry_on=(TimeoutError, ConnectionError)
+    ),
+    operation_name=<span class="string">"my_operation"</span>
+):
+    <span class="keyword">if</span> <span class="function">isinstance</span>(item, RetryEvent):
+        <span class="function">print</span>(<span class="string">f"Retrying after {item.next_delay_seconds}s..."</span>)
+    <span class="keyword">else</span>:
+        <span class="comment"># Process normal output</span>
+        <span class="function">print</span>(item)</code></pre>
+
+            <h3>resilient_stream</h3>
+            <p>Combined retry and rate limiting wrapper.</p>
+            <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> resilient_stream, RetryConfig, RateLimiter, RateLimitConfig
+
+limiter = RateLimiter(RateLimitConfig(
+    requests_per_second=10.0,
+    burst_size=10
+))
+
+<span class="keyword">async for</span> item <span class="keyword">in</span> resilient_stream(
+    stream_fn=my_async_generator,
+    retry_config=RetryConfig(max_attempts=3),
+    rate_limiter=limiter,
+    operation_name=<span class="string">"llm_call"</span>
+):
+    <span class="comment"># Handle events and output</span>
+    <span class="keyword">pass</span></code></pre>
 
             <h3>RateLimiter</h3>
             <p>Token bucket rate limiter.</p>
-            <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> RateLimiter
+            <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> RateLimiter, RateLimitConfig
 
-limiter = RateLimiter(rate=10.0, capacity=10.0)
+limiter = RateLimiter(RateLimitConfig(
+    requests_per_second=10.0,
+    burst_size=10
+))
 
 <span class="keyword">await</span> limiter.acquire()  <span class="comment"># Blocks until token available</span>
 <span class="keyword">await</span> call_api()</code></pre>
+
+            <h3>RetryConfig</h3>
+            <p>Configuration for retry behavior.</p>
+            <pre><code>RetryConfig(
+    max_attempts=3,              <span class="comment"># Maximum retry attempts</span>
+    backoff=<span class="string">"exponential"</span>,       <span class="comment"># "exponential" | "linear" | "constant"</span>
+    base_delay=1.0,              <span class="comment"># Initial delay in seconds</span>
+    max_delay=60.0,              <span class="comment"># Maximum delay cap</span>
+    jitter=<span class="keyword">True</span>,                 <span class="comment"># Add random jitter</span>
+    retry_on=(TimeoutError,)     <span class="comment"># Exception types to retry on</span>
+)</code></pre>
+
+            <h3>RateLimitConfig</h3>
+            <p>Configuration for rate limiting.</p>
+            <pre><code>RateLimitConfig(
+    requests_per_second=10.0,    <span class="comment"># Rate limit per second</span>
+    requests_per_minute=<span class="keyword">None</span>,   <span class="comment"># Optional per-minute limit</span>
+    requests_per_hour=<span class="keyword">None</span>,     <span class="comment"># Optional per-hour limit</span>
+    burst_size=10                <span class="comment"># Token bucket burst capacity</span>
+)</code></pre>
 
             <h2>Validation Module</h2>
             <p>Format-agnostic validation system.</p>
@@ -507,23 +568,107 @@ logger.info(<span class="string">"message"</span>, extra={<span class="string">"
 
             <h3>Required Methods</h3>
             <pre><code><span class="keyword">class</span> <span class="function">MyProvider</span>:
-    <span class="keyword">async def</span> <span class="function">generate</span>(
+    <span class="keyword">def</span> <span class="function">generate</span>(
         <span class="keyword">self</span>,
-        messages: list[dict],
-        system: str | <span class="keyword">None</span> = <span class="keyword">None</span>,
+        prompt: PromptType,
         **kwargs
     ) -> str:
-        <span class="comment"># Return complete response</span>
+        <span class="comment"># Return complete response (synchronous)</span>
         <span class="keyword">pass</span>
 
     <span class="keyword">async def</span> <span class="function">stream</span>(
         <span class="keyword">self</span>,
-        messages: list[dict],
-        system: str | <span class="keyword">None</span> = <span class="keyword">None</span>,
+        prompt: PromptType,
         **kwargs
     ) -> AsyncIterator[str]:
-        <span class="comment"># Yield tokens as they arrive</span>
+        <span class="comment"># Yield chunks as they arrive (async)</span>
         <span class="keyword">pass</span></code></pre>
+
+            <h2>Core Dataclasses</h2>
+            <p>Additional dataclasses used throughout the framework.</p>
+
+            <h3>ToolCall</h3>
+            <p>Represents a tool invocation extracted from agent output.</p>
+            <pre><code><span class="keyword">@dataclass</span>
+<span class="keyword">class</span> <span class="function">ToolCall</span>:
+    name: str                    <span class="comment"># Tool name</span>
+    arguments: dict[str, Any]    <span class="comment"># Tool arguments</span>
+    raw_segment: str             <span class="comment"># Raw extracted text</span>
+    iteration: int               <span class="comment"># Iteration number</span>
+    call_id: str = <span class="string">""</span>           <span class="comment"># Unique call identifier</span></code></pre>
+
+            <h3>ToolExecutionDecision</h3>
+            <p>Tracks complete lifecycle of a detected tool call.</p>
+            <pre><code><span class="keyword">@dataclass</span>
+<span class="keyword">class</span> <span class="function">ToolExecutionDecision</span>:
+    tool_call: ToolCall
+    verification_required: bool
+    accepted: bool
+    rejection_reason: str | <span class="keyword">None</span> = <span class="keyword">None</span>
+    verification_duration_ms: float = 0.0
+    executed: bool = <span class="keyword">False</span>
+    result: ToolResult | <span class="keyword">None</span> = <span class="keyword">None</span></code></pre>
+
+            <h3>ValidationError</h3>
+            <p>Validation error details.</p>
+            <pre><code><span class="keyword">@dataclass</span>
+<span class="keyword">class</span> <span class="function">ValidationError</span>:
+    field: str           <span class="comment"># Field name that failed</span>
+    message: str         <span class="comment"># Error message</span>
+    value: Any = <span class="keyword">None</span>  <span class="comment"># The invalid value</span></code></pre>
+
+            <h3>ContextHealthCheck</h3>
+            <p>Configuration for context health monitoring.</p>
+            <pre><code><span class="keyword">@dataclass</span>
+<span class="keyword">class</span> <span class="function">ContextHealthCheck</span>:
+    check_type: str              <span class="comment"># "size" | "version_count" | "growth_rate"</span>
+    key_pattern: str             <span class="comment"># Glob pattern: "llm_output:*", "*"</span>
+    threshold: float
+    action: str = <span class="string">"warn"</span>       <span class="comment"># "warn" | "stop"</span>
+    evaluation_point: str = <span class="string">"step_complete"</span>
+    max_versions_limit: int = 10000</code></pre>
+
+            <h3>AgentChainConfig</h3>
+            <p>Configuration for sequential agent chains.</p>
+            <pre><code><span class="keyword">@dataclass</span>
+<span class="keyword">class</span> <span class="function">AgentChainConfig</span>:
+    pass_mode: str = <span class="string">"response"</span>     <span class="comment"># "response" | "full_context" | "tool_results" | "custom"</span>
+    transform_fn: Callable[[AgentStepResult], str] | <span class="keyword">None</span> = <span class="keyword">None</span>
+    prepend_context: bool = <span class="keyword">True</span>
+    context_template: str = <span class="string">"Previous agent ({agent_id}) output:\n{output}\n\n"</span></code></pre>
+
+            <h3>SupervisorConfig</h3>
+            <p>Configuration for supervisor-worker pattern.</p>
+            <pre><code><span class="keyword">@dataclass</span>
+<span class="keyword">class</span> <span class="function">SupervisorConfig</span>:
+    delegation_pattern_name: str = <span class="string">"delegate"</span>
+    worker_key: str = <span class="string">"to"</span>
+    task_key: str = <span class="string">"task"</span>
+    max_delegation_rounds: int = 10</code></pre>
+
+            <h3>ParallelConfig</h3>
+            <p>Configuration for parallel agent execution.</p>
+            <pre><code><span class="keyword">@dataclass</span>
+<span class="keyword">class</span> <span class="function">ParallelConfig</span>:
+    merge_strategy: str = <span class="string">"agent"</span>    <span class="comment"># "agent" | "concat" | "voting"</span>
+    merge_template: str = <span class="string">"Synthesize these perspectives:\n\n{perspectives}"</span>
+    timeout_seconds: float = 120.0</code></pre>
+
+            <h3>DebateConfig</h3>
+            <p>Configuration for multi-round agent debate.</p>
+            <pre><code><span class="keyword">@dataclass</span>
+<span class="keyword">class</span> <span class="function">DebateConfig</span>:
+    max_rounds: int = 5
+    consensus_detector: Callable[[list[str]], bool] | <span class="keyword">None</span> = <span class="keyword">None</span>
+    moderator_prompt_template: str = <span class="string">"Summarize the consensus from this debate:\n{history}"</span></code></pre>
+
+            <h3>StorageConfig</h3>
+            <p>Configuration for storage layer.</p>
+            <pre><code><span class="keyword">@dataclass</span>
+<span class="keyword">class</span> <span class="function">StorageConfig</span>:
+    base_dir: Path | str = <span class="string">"./context"</span>
+    db_name_prefix: str = <span class="string">"context"</span>
+    app_id: str | <span class="keyword">None</span> = <span class="keyword">None</span>  <span class="comment"># Optional custom application ID</span></code></pre>
 
             <h2>Next Steps</h2>
             <ul>

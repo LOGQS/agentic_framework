@@ -83,405 +83,414 @@
 
         <main class="main-content">
             <h1>Resilience</h1>
-            <p class="subtitle">Retry logic and rate limiting for robust agent execution</p>
+            <p class="subtitle">Retry logic and rate limiting for robust streaming operations</p>
 
             <h2>Overview</h2>
-            <p>Agentic provides universal resilience utilities that work with any async operation. These utilities help build production-ready agents that gracefully handle transient failures and respect rate limits.</p>
+            <p>Agentic provides universal resilience utilities that work with any async iterator (streams). These utilities wrap LLM calls, tool execution, or any async operation with automatic retry and rate limiting, making agents production-ready.</p>
+
+            <div class="alert">
+                <strong>Key Concept:</strong> All resilience functions work with <em>async iterators</em> (streams), not simple async functions. They yield events and items from the wrapped stream.
+            </div>
 
             <h2>Retry Logic</h2>
-            <p>The <code>with_retry</code> function wraps any async callable with automatic retry behavior:</p>
+            <p>The <code>retry_stream</code> function wraps any async iterator with automatic retry behavior:</p>
 
-            <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> with_retry, RetryConfig
+            <pre><code><span class="keyword">from</span> agentic.resilience <span class="keyword">import</span> retry_stream, RetryConfig
+<span class="keyword">from</span> agentic.events <span class="keyword">import</span> RetryEvent
 
-<span class="keyword">async def</span> <span class="function">call_llm_api</span>(prompt):
-    <span class="comment"># Potentially failing API call</span>
-    response = <span class="keyword">await</span> llm_client.generate(prompt)
-    <span class="keyword">return</span> response
+<span class="keyword">async def</span> <span class="function">llm_stream</span>():
+    <span class="comment"># Your streaming LLM call</span>
+    <span class="keyword">async for</span> chunk <span class="keyword">in</span> provider.stream(prompt):
+        <span class="keyword">yield</span> chunk
 
 <span class="comment"># Wrap with retry logic</span>
-resilient_llm_call = with_retry(
-    call_llm_api,
-    config=RetryConfig(
-        max_attempts=3,
-        initial_delay=1.0,
-        max_delay=10.0,
-        exponential_base=2.0,
-        jitter=<span class="keyword">True</span>
-    )
+config = RetryConfig(
+    max_attempts=3,
+    backoff=<span class="string">"exponential"</span>,
+    base_delay=1.0,
+    max_delay=30.0,
+    jitter=<span class="keyword">True</span>,
+    retry_on=(ConnectionError, TimeoutError)
 )
 
-<span class="comment"># Use it like the original function</span>
-response = <span class="keyword">await</span> resilient_llm_call(<span class="string">"Generate a response"</span>)</code></pre>
+<span class="keyword">async for</span> item <span class="keyword">in</span> retry_stream(
+    llm_stream,
+    config,
+    operation_name=<span class="string">"gpt-4"</span>,
+    operation_type=<span class="string">"llm"</span>
+):
+    <span class="keyword">if</span> <span class="function">isinstance</span>(item, RetryEvent):
+        <span class="function">print</span>(<span class="string">f"Retry {item.attempt}/{item.max_attempts}, waiting {item.next_delay_seconds}s"</span>)
+    <span class="keyword">else</span>:
+        <span class="comment"># Actual LLM chunk</span>
+        <span class="function">print</span>(item, end=<span class="string">""</span>)</code></pre>
 
-            <h2>RetryConfig Options</h2>
+            <h2>RetryConfig</h2>
+            <p>Configuration for retry behavior:</p>
 
-            <h3>max_attempts</h3>
-            <p>Maximum number of attempts (including the initial call):</p>
-            <pre><code>RetryConfig(max_attempts=5)  <span class="comment"># Try up to 5 times</span></code></pre>
+            <pre><code><span class="keyword">from</span> agentic.resilience <span class="keyword">import</span> RetryConfig
 
-            <h3>initial_delay</h3>
-            <p>Initial delay in seconds before first retry:</p>
-            <pre><code>RetryConfig(initial_delay=2.0)  <span class="comment"># Wait 2 seconds before retry</span></code></pre>
+config = RetryConfig(
+    max_attempts=3,                      <span class="comment"># Maximum retry attempts (default: 3)</span>
+    backoff=<span class="string">"exponential"</span>,              <span class="comment"># "exponential" | "linear" | "constant"</span>
+    base_delay=1.0,                      <span class="comment"># Base delay in seconds (default: 1.0)</span>
+    max_delay=60.0,                      <span class="comment"># Maximum delay cap (default: 60.0)</span>
+    jitter=<span class="keyword">True</span>,                        <span class="comment"># Add random jitter ±25% (default: True)</span>
+    retry_on=(TimeoutError, ConnectionError, asyncio.TimeoutError)
+)</code></pre>
 
-            <h3>max_delay</h3>
-            <p>Maximum delay between retries (prevents exponential growth from becoming too large):</p>
-            <pre><code>RetryConfig(max_delay=60.0)  <span class="comment"># Cap at 60 seconds</span></code></pre>
+            <h3>Backoff Strategies</h3>
 
-            <h3>exponential_base</h3>
-            <p>Base for exponential backoff calculation:</p>
-            <pre><code>RetryConfig(exponential_base=2.0)  <span class="comment"># Delay doubles each attempt</span></code></pre>
-            <p>Delay formula: <code>min(initial_delay * (exponential_base ** attempt), max_delay)</code></p>
+            <h4>Exponential Backoff</h4>
+            <p>Delay doubles with each retry (recommended for most cases):</p>
+            <pre><code>RetryConfig(backoff=<span class="string">"exponential"</span>, base_delay=1.0, max_delay=60.0)
+<span class="comment"># Delays: 1s, 2s, 4s, 8s, 16s, 32s, 60s (capped)</span></code></pre>
 
-            <h3>jitter</h3>
-            <p>Add randomness to delays to prevent thundering herd:</p>
-            <pre><code>RetryConfig(jitter=<span class="keyword">True</span>)  <span class="comment"># Add random variation to delays</span></code></pre>
+            <h4>Linear Backoff</h4>
+            <p>Delay increases linearly:</p>
+            <pre><code>RetryConfig(backoff=<span class="string">"linear"</span>, base_delay=2.0, max_delay=30.0)
+<span class="comment"># Delays: 2s, 4s, 6s, 8s, 10s...</span></code></pre>
 
-            <h3>retryable_exceptions</h3>
-            <p>Tuple of exception types that should trigger a retry:</p>
+            <h4>Constant Backoff</h4>
+            <p>Fixed delay between retries:</p>
+            <pre><code>RetryConfig(backoff=<span class="string">"constant"</span>, base_delay=5.0)
+<span class="comment"># Delays: 5s, 5s, 5s...</span></code></pre>
+
+            <h3>Jitter</h3>
+            <p>Adding jitter (random variation) prevents thundering herd problems:</p>
+            <pre><code>RetryConfig(jitter=<span class="keyword">True</span>)  <span class="comment"># Adds ±25% random variation to delays</span></code></pre>
+
+            <h3>Retryable Exceptions</h3>
+            <p>Specify which exceptions should trigger a retry:</p>
             <pre><code><span class="keyword">from</span> aiohttp <span class="keyword">import</span> ClientError, ServerTimeoutError
 
 RetryConfig(
-    retryable_exceptions=(ClientError, ServerTimeoutError, TimeoutError)
+    retry_on=(
+        ConnectionError,
+        TimeoutError,
+        asyncio.TimeoutError,
+        ClientError,
+        ServerTimeoutError
+    )
 )</code></pre>
-
-            <h3>on_retry</h3>
-            <p>Callback function called before each retry:</p>
-            <pre><code><span class="keyword">def</span> <span class="function">log_retry</span>(attempt, exception, delay):
-    <span class="function">print</span>(<span class="string">f"Retry {attempt}: {exception}. Waiting {delay}s..."</span>)
-
-RetryConfig(on_retry=log_retry)</code></pre>
-
-            <h2>Common Retry Patterns</h2>
-
-            <h3>API Calls with Retry</h3>
-            <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> with_retry, RetryConfig
-<span class="keyword">import</span> aiohttp
-
-<span class="keyword">async def</span> <span class="function">fetch_data</span>(url):
-    <span class="keyword">async with</span> aiohttp.ClientSession() <span class="keyword">as</span> session:
-        <span class="keyword">async with</span> session.get(url) <span class="keyword">as</span> response:
-            <span class="keyword">return await</span> response.json()
-
-<span class="comment"># Wrap with retry</span>
-resilient_fetch = with_retry(
-    fetch_data,
-    RetryConfig(
-        max_attempts=5,
-        initial_delay=1.0,
-        exponential_base=2.0,
-        retryable_exceptions=(
-            aiohttp.ClientError,
-            asyncio.TimeoutError
-        )
-    )
-)
-
-data = <span class="keyword">await</span> resilient_fetch(<span class="string">"https://api.example.com/data"</span>)</code></pre>
-
-            <h3>Database Operations</h3>
-            <pre><code><span class="keyword">async def</span> <span class="function">save_to_db</span>(record):
-    <span class="keyword">await</span> db.insert(record)
-
-resilient_save = with_retry(
-    save_to_db,
-    RetryConfig(
-        max_attempts=3,
-        initial_delay=0.5,
-        retryable_exceptions=(ConnectionError, TimeoutError)
-    )
-)
-
-<span class="keyword">await</span> resilient_save({<span class="string">"id"</span>: 1, <span class="string">"data"</span>: <span class="string">"..."</span>})</code></pre>
-
-            <h3>LLM Provider Integration</h3>
-            <pre><code><span class="keyword">class</span> <span class="function">ResilientLLMProvider</span>:
-    <span class="keyword">def</span> <span class="function">__init__</span>(<span class="keyword">self</span>, base_provider):
-        <span class="keyword">self</span>._provider = base_provider
-
-        <span class="comment"># Wrap generate with retry</span>
-        <span class="keyword">self</span>._resilient_generate = with_retry(
-            <span class="keyword">self</span>._provider.generate,
-            RetryConfig(
-                max_attempts=3,
-                initial_delay=2.0,
-                exponential_base=2.0,
-                jitter=<span class="keyword">True</span>
-            )
-        )
-
-    <span class="keyword">def</span> <span class="function">generate</span>(<span class="keyword">self</span>, prompt, **kwargs):
-        <span class="keyword">return</span> <span class="keyword">self</span>._resilient_generate(prompt, **kwargs)
-
-    <span class="keyword">async def</span> <span class="function">stream</span>(<span class="keyword">self</span>, prompt, **kwargs):
-        <span class="comment"># Stream method with retry</span>
-        resilient_stream = with_retry(
-            <span class="keyword">self</span>._provider.stream,
-            RetryConfig(max_attempts=2)
-        )
-        <span class="keyword">async for</span> chunk <span class="keyword">in</span> <span class="keyword">await</span> resilient_stream(prompt, **kwargs):
-            <span class="keyword">yield</span> chunk</code></pre>
 
             <h2>Rate Limiting</h2>
-            <p>The <code>RateLimiter</code> class implements token bucket rate limiting:</p>
+            <p>Token bucket rate limiting for controlling request rates:</p>
 
-            <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> RateLimiter
+            <h3>RateLimitConfig</h3>
+            <pre><code><span class="keyword">from</span> agentic.resilience <span class="keyword">import</span> RateLimitConfig, RateLimiter
 
-<span class="comment"># Create rate limiter: 10 requests per second</span>
-limiter = RateLimiter(
-    rate=10.0,        <span class="comment"># Tokens per second</span>
-    capacity=10.0     <span class="comment"># Bucket capacity (burst allowance)</span>
+config = RateLimitConfig(
+    requests_per_second=10.0,   <span class="comment"># Limit to 10 requests/second</span>
+    requests_per_minute=<span class="keyword">None</span>,     <span class="comment"># Optional minute-level limit</span>
+    requests_per_hour=<span class="keyword">None</span>,       <span class="comment"># Optional hour-level limit</span>
+    burst_size=20               <span class="comment"># Allow bursts up to 20 tokens</span>
 )
 
-<span class="comment"># Acquire token before operation</span>
-<span class="keyword">await</span> limiter.acquire()  <span class="comment"># Blocks until token available</span>
-<span class="keyword">await</span> call_api()</code></pre>
+limiter = RateLimiter(config)</code></pre>
 
-            <h2>Rate Limiter Configuration</h2>
+            <h3>Using RateLimiter</h3>
 
-            <h3>Basic Rate Limiting</h3>
-            <pre><code><span class="comment"># 5 requests per second</span>
-limiter = RateLimiter(rate=5.0, capacity=5.0)
+            <h4>Manual Token Acquisition</h4>
+            <pre><code><span class="comment"># Blocking acquire - waits until token is available</span>
+<span class="keyword">await</span> limiter.acquire(tokens=1, operation_name=<span class="string">"api_call"</span>)
+<span class="keyword">await</span> make_api_call()
 
-<span class="keyword">for</span> i <span class="keyword">in</span> <span class="function">range</span>(10):
-    <span class="keyword">await</span> limiter.acquire()
-    <span class="keyword">await</span> make_request(i)</code></pre>
+<span class="comment"># Non-blocking try - returns immediately</span>
+<span class="keyword">if</span> <span class="keyword">await</span> limiter.try_acquire(tokens=1):
+    <span class="keyword">await</span> make_api_call()
+<span class="keyword">else</span>:
+    <span class="function">print</span>(<span class="string">"Rate limit exceeded"</span>)
 
-            <h3>Burst Allowance</h3>
-            <p>Higher capacity allows bursts while maintaining average rate:</p>
-            <pre><code><span class="comment"># 10 requests/sec average, allow bursts up to 50</span>
-limiter = RateLimiter(rate=10.0, capacity=50.0)
+<span class="comment"># Check available tokens</span>
+available = limiter.tokens_available()</code></pre>
 
-<span class="comment"># Can handle 50 immediate requests</span>
-<span class="comment"># Then throttles to 10/sec</span></code></pre>
+            <h4>With Streaming</h4>
+            <pre><code><span class="keyword">from</span> agentic.resilience <span class="keyword">import</span> rate_limited_stream
+<span class="keyword">from</span> agentic.events <span class="keyword">import</span> RateLimitEvent
 
-            <h3>Conservative Rate Limiting</h3>
-            <p>Lower capacity enforces stricter pacing:</p>
-            <pre><code><span class="comment"># 10 requests/sec, no bursting</span>
-limiter = RateLimiter(rate=10.0, capacity=1.0)
+<span class="keyword">async def</span> <span class="function">my_stream</span>():
+    <span class="keyword">async for</span> item <span class="keyword">in</span> data_source:
+        <span class="keyword">yield</span> item
 
-<span class="comment"># Forces even distribution over time</span></code></pre>
+<span class="keyword">async for</span> item <span class="keyword">in</span> rate_limited_stream(
+    my_stream,
+    limiter,
+    operation_name=<span class="string">"data_fetch"</span>
+):
+    <span class="keyword">if</span> <span class="function">isinstance</span>(item, RateLimitEvent):
+        <span class="function">print</span>(<span class="string">f"Rate limit acquired, {item.tokens_remaining} tokens left"</span>)
+    <span class="keyword">else</span>:
+        <span class="function">print</span>(item)</code></pre>
 
-            <h2>Combining Retry and Rate Limiting</h2>
+            <h3>Rate Limit Strategies</h3>
 
-            <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> with_retry, RetryConfig, RateLimiter
-
-<span class="comment"># Rate limiter for API calls</span>
-api_limiter = RateLimiter(rate=10.0, capacity=10.0)
-
-<span class="keyword">async def</span> <span class="function">call_api_with_limits</span>(endpoint, data):
-    <span class="comment"># Wait for rate limit token</span>
-    <span class="keyword">await</span> api_limiter.acquire()
-
-    <span class="comment"># Make API call</span>
-    response = <span class="keyword">await</span> api_client.post(endpoint, json=data)
-    <span class="keyword">return</span> response.json()
-
-<span class="comment"># Add retry logic on top of rate limiting</span>
-resilient_api_call = with_retry(
-    call_api_with_limits,
-    RetryConfig(
-        max_attempts=3,
-        initial_delay=1.0,
-        exponential_base=2.0
-    )
-)
-
-<span class="comment"># Use the resilient, rate-limited function</span>
-result = <span class="keyword">await</span> resilient_api_call(<span class="string">"/endpoint"</span>, {<span class="string">"key"</span>: <span class="string">"value"</span>})</code></pre>
-
-            <h2>Advanced Patterns</h2>
-
-            <h3>Per-Agent Rate Limiting</h3>
-            <pre><code><span class="keyword">class</span> <span class="function">RateLimitedAgent</span>:
-    <span class="keyword">def</span> <span class="function">__init__</span>(<span class="keyword">self</span>, agent, rate_limit):
-        <span class="keyword">self</span>._agent = agent
-        <span class="keyword">self</span>._limiter = RateLimiter(
-            rate=rate_limit,
-            capacity=rate_limit
-        )
-
-    <span class="keyword">async def</span> <span class="function">step</span>(<span class="keyword">self</span>, user_input):
-        <span class="comment"># Rate limit agent execution</span>
-        <span class="keyword">await</span> <span class="keyword">self</span>._limiter.acquire()
-
-        runner = AgentRunner(<span class="keyword">self</span>._agent)
-        <span class="keyword">async for</span> event <span class="keyword">in</span> runner.step_stream(user_input):
-            <span class="keyword">yield</span> event
-
-<span class="comment"># Create rate-limited agent (max 2 steps per second)</span>
-limited_agent = RateLimitedAgent(my_agent, rate_limit=2.0)</code></pre>
-
-            <h3>Conditional Retry</h3>
-            <pre><code><span class="keyword">def</span> <span class="function">should_retry_on_status</span>(exception):
-    <span class="comment"># Only retry on specific HTTP status codes</span>
-    <span class="keyword">if</span> <span class="function">isinstance</span>(exception, aiohttp.ClientResponseError):
-        <span class="keyword">return</span> exception.status <span class="keyword">in</span> (429, 500, 502, 503, 504)
-    <span class="keyword">return</span> <span class="keyword">True</span>
-
-resilient_call = with_retry(
-    api_function,
-    RetryConfig(
-        max_attempts=5,
-        retryable_exceptions=(aiohttp.ClientError,),
-        on_retry=<span class="keyword">lambda</span> attempt, exc, delay:
-            should_retry_on_status(exc)
-    )
+            <h4>Strict Rate Limiting</h4>
+            <p>Low burst size enforces even distribution:</p>
+            <pre><code>RateLimitConfig(
+    requests_per_second=10.0,
+    burst_size=1  <span class="comment"># No bursting, strict 10/sec</span>
 )</code></pre>
 
-            <h3>Circuit Breaker Pattern</h3>
-            <pre><code><span class="keyword">class</span> <span class="function">CircuitBreaker</span>:
-    <span class="keyword">def</span> <span class="function">__init__</span>(<span class="keyword">self</span>, failure_threshold=5, recovery_timeout=60.0):
-        <span class="keyword">self</span>._failures = 0
-        <span class="keyword">self</span>._threshold = failure_threshold
-        <span class="keyword">self</span>._timeout = recovery_timeout
-        <span class="keyword">self</span>._last_failure = <span class="keyword">None</span>
-        <span class="keyword">self</span>._is_open = <span class="keyword">False</span>
+            <h4>Bursty Rate Limiting</h4>
+            <p>High burst size allows temporary spikes:</p>
+            <pre><code>RateLimitConfig(
+    requests_per_second=10.0,
+    burst_size=100  <span class="comment"># Allow bursts, average 10/sec</span>
+)</code></pre>
 
-    <span class="keyword">async def</span> <span class="function">call</span>(<span class="keyword">self</span>, func, *args, **kwargs):
-        <span class="comment"># Check if circuit is open</span>
-        <span class="keyword">if</span> <span class="keyword">self</span>._is_open:
-            <span class="keyword">if</span> time.time() - <span class="keyword">self</span>._last_failure < <span class="keyword">self</span>._timeout:
-                <span class="keyword">raise</span> <span class="function">RuntimeError</span>(<span class="string">"Circuit breaker is open"</span>)
-            <span class="keyword">else</span>:
-                <span class="comment"># Try to close circuit</span>
-                <span class="keyword">self</span>._is_open = <span class="keyword">False</span>
-                <span class="keyword">self</span>._failures = 0
+            <h4>Multiple Time Windows</h4>
+            <p>Combine limits at different granularities:</p>
+            <pre><code>RateLimitConfig(
+    requests_per_second=10.0,   <span class="comment"># Max 10/sec</span>
+    requests_per_minute=500.0,  <span class="comment"># Max 500/min</span>
+    requests_per_hour=20000.0,  <span class="comment"># Max 20k/hour</span>
+    burst_size=20
+)
+<span class="comment"># Uses most restrictive rate</span></code></pre>
 
-        <span class="keyword">try</span>:
-            result = <span class="keyword">await</span> func(*args, **kwargs)
-            <span class="keyword">self</span>._failures = 0  <span class="comment"># Reset on success</span>
-            <span class="keyword">return</span> result
-        <span class="keyword">except</span> <span class="function">Exception</span> <span class="keyword">as</span> e:
-            <span class="keyword">self</span>._failures += 1
-            <span class="keyword">self</span>._last_failure = time.time()
+            <h2>Combined Resilience</h2>
+            <p>The <code>resilient_stream</code> function combines retry and rate limiting:</p>
 
-            <span class="keyword">if</span> <span class="keyword">self</span>._failures >= <span class="keyword">self</span>._threshold:
-                <span class="keyword">self</span>._is_open = <span class="keyword">True</span>
-                <span class="function">print</span>(<span class="string">"Circuit breaker opened!"</span>)
+            <pre><code><span class="keyword">from</span> agentic.resilience <span class="keyword">import</span> (
+    resilient_stream, RetryConfig, RateLimitConfig, RateLimiter
+)
+<span class="keyword">from</span> agentic.events <span class="keyword">import</span> RetryEvent, RateLimitEvent
 
-            <span class="keyword">raise</span> e
-
-breaker = CircuitBreaker(failure_threshold=5, recovery_timeout=30.0)
-result = <span class="keyword">await</span> breaker.call(unreliable_api_call)</code></pre>
-
-            <h2>Monitoring Retries</h2>
-
-            <h3>Retry Metrics</h3>
-            <pre><code><span class="keyword">class</span> <span class="function">RetryMetrics</span>:
-    <span class="keyword">def</span> <span class="function">__init__</span>(<span class="keyword">self</span>):
-        <span class="keyword">self</span>.total_attempts = 0
-        <span class="keyword">self</span>.successful_retries = 0
-        <span class="keyword">self</span>.failed_operations = 0
-
-    <span class="keyword">def</span> <span class="function">on_retry</span>(<span class="keyword">self</span>, attempt, exception, delay):
-        <span class="keyword">self</span>.total_attempts += 1
-        <span class="function">print</span>(<span class="string">f"Retry {attempt}: {exception.__class__.__name__}"</span>)
-
-    <span class="keyword">def</span> <span class="function">on_success</span>(<span class="keyword">self</span>, attempts):
-        <span class="keyword">if</span> attempts > 1:
-            <span class="keyword">self</span>.successful_retries += 1
-
-    <span class="keyword">def</span> <span class="function">on_failure</span>(<span class="keyword">self</span>):
-        <span class="keyword">self</span>.failed_operations += 1
-
-metrics = RetryMetrics()
-
-resilient_op = with_retry(
-    operation,
-    RetryConfig(
-        max_attempts=3,
-        on_retry=metrics.on_retry
-    )
+<span class="comment"># Configure resilience</span>
+retry_config = RetryConfig(
+    max_attempts=3,
+    backoff=<span class="string">"exponential"</span>,
+    base_delay=1.0,
+    retry_on=(ConnectionError, TimeoutError)
 )
 
-<span class="keyword">try</span>:
-    result = <span class="keyword">await</span> resilient_op()
-    metrics.on_success(attempts_used)
-<span class="keyword">except</span> <span class="function">Exception</span>:
-    metrics.on_failure()
+rate_config = RateLimitConfig(
+    requests_per_second=10.0,
+    burst_size=20
+)
+rate_limiter = RateLimiter(rate_config)
 
-<span class="function">print</span>(<span class="string">f"Total retry attempts: {metrics.total_attempts}"</span>)
-<span class="function">print</span>(<span class="string">f"Operations recovered via retry: {metrics.successful_retries}"</span>)
-<span class="function">print</span>(<span class="string">f"Failed operations: {metrics.failed_operations}"</span>)</code></pre>
+<span class="comment"># Your streaming operation</span>
+<span class="keyword">async def</span> <span class="function">llm_call</span>():
+    <span class="keyword">async for</span> chunk <span class="keyword">in</span> provider.stream(prompt):
+        <span class="keyword">yield</span> chunk
 
-            <h2>Best Practices</h2>
+<span class="comment"># Wrap with full resilience</span>
+<span class="keyword">async for</span> item <span class="keyword">in</span> resilient_stream(
+    llm_call,
+    retry_config=retry_config,
+    rate_limiter=rate_limiter,
+    operation_name=<span class="string">"gpt-4"</span>,
+    operation_type=<span class="string">"llm"</span>
+):
+    <span class="keyword">if</span> <span class="function">isinstance</span>(item, RetryEvent):
+        <span class="function">print</span>(<span class="string">f"Retrying: {item.error}"</span>)
+    <span class="keyword">elif</span> <span class="function">isinstance</span>(item, RateLimitEvent):
+        <span class="function">print</span>(<span class="string">f"Rate limited, {item.tokens_remaining} tokens left"</span>)
+    <span class="keyword">else</span>:
+        <span class="comment"># Actual data</span>
+        <span class="function">print</span>(item, end=<span class="string">""</span>)</code></pre>
 
-            <ul>
-                <li><strong>Set Appropriate Timeouts:</strong> Always set max_delay to prevent excessively long waits</li>
-                <li><strong>Use Jitter:</strong> Enable jitter in production to prevent thundering herd</li>
-                <li><strong>Limit Retry Attempts:</strong> Don't retry indefinitely - set reasonable max_attempts</li>
-                <li><strong>Log Retries:</strong> Use on_retry callback to monitor retry behavior</li>
-                <li><strong>Retry Transient Errors Only:</strong> Only retry errors that might succeed on retry</li>
-                <li><strong>Respect Rate Limits:</strong> Use RateLimiter to stay within API rate limits</li>
-                <li><strong>Combine Strategies:</strong> Use retry with rate limiting for robust operations</li>
-                <li><strong>Monitor Metrics:</strong> Track retry counts to identify unstable services</li>
-                <li><strong>Circuit Breakers:</strong> Implement circuit breakers for frequently failing operations</li>
-            </ul>
-
-            <div class="alert warning">
-                <strong>Warning:</strong> Excessive retries can amplify failures during outages. Always set max_attempts and use exponential backoff with jitter.
-            </div>
-
-            <h2>Real-World Example</h2>
-
-            <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> with_retry, RetryConfig, RateLimiter
+            <h2>Real-World Example: Production LLM Provider</h2>
+            <pre><code><span class="keyword">from</span> agentic.resilience <span class="keyword">import</span> (
+    resilient_stream, RetryConfig, RateLimitConfig, RateLimiter
+)
 <span class="keyword">import</span> logging
 
-logger = logging.getLogger(<span class="string">"agent.resilience"</span>)
-
-<span class="comment"># Global rate limiter for API</span>
-api_limiter = RateLimiter(rate=50.0, capacity=100.0)
-
-<span class="keyword">def</span> <span class="function">log_retry</span>(attempt, exception, delay):
-    logger.warning(
-        <span class="string">f"LLM API retry {attempt}"</span>,
-        extra={
-            <span class="string">"error"</span>: <span class="function">str</span>(exception),
-            <span class="string">"delay"</span>: delay
-        }
-    )
+logger = logging.getLogger(<span class="string">"llm_provider"</span>)
 
 <span class="keyword">class</span> <span class="function">ProductionLLMProvider</span>:
     <span class="keyword">def</span> <span class="function">__init__</span>(<span class="keyword">self</span>, base_provider):
         <span class="keyword">self</span>._provider = base_provider
 
-        <span class="comment"># Wrap generate with full resilience</span>
-        <span class="keyword">self</span>._resilient_generate = with_retry(
-            <span class="keyword">self</span>._rate_limited_generate,
-            RetryConfig(
-                max_attempts=5,
-                initial_delay=1.0,
-                max_delay=30.0,
-                exponential_base=2.0,
-                jitter=<span class="keyword">True</span>,
-                retryable_exceptions=(
-                    ConnectionError,
-                    TimeoutError,
-                    asyncio.TimeoutError
-                ),
-                on_retry=log_retry
+        <span class="comment"># Global rate limiter for this provider</span>
+        <span class="keyword">self</span>._rate_limiter = RateLimiter(
+            RateLimitConfig(
+                requests_per_second=50.0,
+                requests_per_minute=2000.0,
+                burst_size=100
             )
         )
 
-    <span class="keyword">async def</span> <span class="function">_rate_limited_generate</span>(<span class="keyword">self</span>, prompt, **kwargs):
-        <span class="comment"># Acquire rate limit token</span>
-        <span class="keyword">await</span> api_limiter.acquire()
+        <span class="comment"># Retry configuration</span>
+        <span class="keyword">self</span>._retry_config = RetryConfig(
+            max_attempts=5,
+            backoff=<span class="string">"exponential"</span>,
+            base_delay=1.0,
+            max_delay=30.0,
+            jitter=<span class="keyword">True</span>,
+            retry_on=(
+                ConnectionError,
+                TimeoutError,
+                asyncio.TimeoutError
+            )
+        )
 
-        <span class="comment"># Call underlying provider</span>
-        <span class="keyword">return</span> <span class="keyword">await</span> <span class="keyword">self</span>._provider.generate(prompt, **kwargs)
+    <span class="keyword">async def</span> <span class="function">stream</span>(<span class="keyword">self</span>, prompt, **kwargs):
+        <span class="comment"># Define the base streaming function</span>
+        <span class="keyword">async def</span> <span class="function">_stream</span>():
+            <span class="keyword">async for</span> chunk <span class="keyword">in</span> <span class="keyword">self</span>._provider.stream(prompt, **kwargs):
+                <span class="keyword">yield</span> chunk
 
-    <span class="keyword">async def</span> <span class="function">generate</span>(<span class="keyword">self</span>, prompt, **kwargs):
-        <span class="keyword">return</span> <span class="keyword">await</span> <span class="keyword">self</span>._resilient_generate(prompt, **kwargs)
+        <span class="comment"># Wrap with resilience</span>
+        <span class="keyword">async for</span> item <span class="keyword">in</span> resilient_stream(
+            _stream,
+            retry_config=<span class="keyword">self</span>._retry_config,
+            rate_limiter=<span class="keyword">self</span>._rate_limiter,
+            operation_name=<span class="string">"llm_stream"</span>,
+            operation_type=<span class="string">"llm"</span>
+        ):
+            <span class="keyword">if</span> <span class="function">isinstance</span>(item, RetryEvent):
+                logger.warning(
+                    <span class="string">f"LLM retry {item.attempt}/{item.max_attempts}: {item.error}"</span>
+                )
+            <span class="keyword">elif</span> <span class="function">isinstance</span>(item, RateLimitEvent):
+                logger.debug(<span class="string">f"Rate limit acquired: {item.tokens_remaining} tokens"</span>)
+            <span class="keyword">else</span>:
+                <span class="keyword">yield</span> item
 
-<span class="comment"># Use in production</span>
-production_provider = ProductionLLMProvider(base_llm_provider)
-agent = Agent(config, context, patterns, tools, production_provider)</code></pre>
+<span class="comment"># Usage</span>
+provider = ProductionLLMProvider(base_llm_provider)
+
+<span class="keyword">async for</span> chunk <span class="keyword">in</span> provider.stream(<span class="string">"Hello, world!"</span>):
+    <span class="function">print</span>(chunk, end=<span class="string">""</span>)</code></pre>
+
+            <h2>Integration with Agent System</h2>
+            <p>The framework automatically integrates resilience into the agent system. Agents can use resilient providers transparently:</p>
+
+            <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> Agent, AgentConfig
+
+<span class="comment"># Create agent with production provider</span>
+agent = Agent(
+    config=AgentConfig(...),
+    context=context,
+    patterns=patterns,
+    tools=tools,
+    llm_provider=ProductionLLMProvider(base_provider)
+)
+
+<span class="comment"># Agent step automatically benefits from retry + rate limiting</span>
+runner = AgentRunner(agent)
+<span class="keyword">async for</span> event <span class="keyword">in</span> runner.step_stream(user_input):
+    <span class="comment"># RetryEvent and RateLimitEvent will appear in stream</span>
+    <span class="keyword">if</span> <span class="function">isinstance</span>(event, RetryEvent):
+        <span class="function">print</span>(<span class="string">f"Retrying LLM call..."</span>)
+    <span class="keyword">elif</span> <span class="function">isinstance</span>(event, LLMChunkEvent):
+        <span class="function">print</span>(event.chunk, end=<span class="string">""</span>)</code></pre>
+
+            <h2>Tool Resilience</h2>
+            <p>Apply resilience to individual tools:</p>
+
+            <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> tool
+<span class="keyword">from</span> agentic.resilience <span class="keyword">import</span> resilient_stream, RetryConfig
+
+<span class="keyword">class</span> <span class="function">APITool</span>:
+    <span class="keyword">def</span> <span class="function">__init__</span>(<span class="keyword">self</span>):
+        <span class="keyword">self</span>._retry_config = RetryConfig(
+            max_attempts=3,
+            backoff=<span class="string">"exponential"</span>,
+            retry_on=(ConnectionError,)
+        )
+
+    <span class="keyword">@tool</span>(<span class="string">"Fetch data from external API"</span>)
+    <span class="keyword">async def</span> <span class="function">fetch_data</span>(<span class="keyword">self</span>, url: str):
+        <span class="keyword">async def</span> <span class="function">_fetch</span>():
+            <span class="keyword">async with</span> aiohttp.ClientSession() <span class="keyword">as</span> session:
+                <span class="keyword">async with</span> session.get(url) <span class="keyword">as</span> response:
+                    data = <span class="keyword">await</span> response.json()
+                    <span class="keyword">yield</span> data
+
+        <span class="keyword">async for</span> item <span class="keyword">in</span> resilient_stream(
+            _fetch,
+            retry_config=<span class="keyword">self</span>._retry_config,
+            operation_name=<span class="string">"api_fetch"</span>,
+            operation_type=<span class="string">"tool"</span>
+        ):
+            <span class="keyword">if</span> <span class="keyword">not</span> <span class="function">isinstance</span>(item, RetryEvent):
+                <span class="keyword">return</span> item</code></pre>
+
+            <h2>Event Types</h2>
+
+            <h3>RetryEvent</h3>
+            <p>Emitted when an operation is being retried:</p>
+            <pre><code><span class="keyword">class</span> <span class="function">RetryEvent</span>:
+    operation_type: str     <span class="comment"># "llm", "tool", "custom"</span>
+    operation_name: str     <span class="comment"># Name of operation</span>
+    attempt: int            <span class="comment"># Current retry attempt (1-indexed)</span>
+    max_attempts: int       <span class="comment"># Maximum attempts configured</span>
+    error: str              <span class="comment"># Error that triggered retry</span>
+    next_delay_seconds: float  <span class="comment"># Delay before next attempt</span>
+    step_id: str            <span class="comment"># Optional step correlation ID</span></code></pre>
+
+            <h3>RateLimitEvent</h3>
+            <p>Emitted when rate limit token is acquired:</p>
+            <pre><code><span class="keyword">class</span> <span class="function">RateLimitEvent</span>:
+    operation_name: str     <span class="comment"># Name of operation</span>
+    acquired_at: float      <span class="comment"># Timestamp of acquisition</span>
+    tokens_remaining: float <span class="comment"># Tokens left in bucket</span>
+    step_id: str            <span class="comment"># Optional step correlation ID</span></code></pre>
+
+            <h2>Best Practices</h2>
+            <ul>
+                <li><strong>Always use jitter</strong> - Prevents thundering herd in distributed systems</li>
+                <li><strong>Set reasonable max_delay</strong> - Cap exponential backoff to avoid excessive waits</li>
+                <li><strong>Use exponential backoff</strong> - Most effective for transient failures</li>
+                <li><strong>Retry transient errors only</strong> - Don't retry validation errors or 4xx HTTP codes</li>
+                <li><strong>Set max_attempts carefully</strong> - Too many retries amplify outages</li>
+                <li><strong>Monitor retry rates</strong> - High retry rates indicate upstream issues</li>
+                <li><strong>Combine rate limiting with retry</strong> - Rate limit first, then retry</li>
+                <li><strong>Use burst_size wisely</strong> - Match burst capacity to expected traffic patterns</li>
+                <li><strong>Share rate limiters</strong> - Use one RateLimiter instance per API/service</li>
+            </ul>
+
+            <div class="alert warning">
+                <strong>Warning:</strong> Excessive retries during outages can make problems worse. Always set <code>max_attempts</code> and use exponential backoff with jitter to spread load.
+            </div>
+
+            <h2>Monitoring and Observability</h2>
+            <p>Handle resilience events for monitoring:</p>
+
+            <pre><code><span class="keyword">from</span> agentic.events <span class="keyword">import</span> RetryEvent, RateLimitEvent
+<span class="keyword">import</span> time
+
+<span class="keyword">class</span> <span class="function">ResilienceMonitor</span>:
+    <span class="keyword">def</span> <span class="function">__init__</span>(<span class="keyword">self</span>):
+        <span class="keyword">self</span>.retry_count = 0
+        <span class="keyword">self</span>.rate_limit_waits = 0
+        <span class="keyword">self</span>.total_delay = 0.0
+
+    <span class="keyword">def</span> <span class="function">handle_event</span>(<span class="keyword">self</span>, event):
+        <span class="keyword">if</span> <span class="function">isinstance</span>(event, RetryEvent):
+            <span class="keyword">self</span>.retry_count += 1
+            <span class="keyword">self</span>.total_delay += event.next_delay_seconds
+            logger.warning(
+                <span class="string">f"Retry {event.attempt}/{event.max_attempts} "</span>
+                <span class="string">f"for {event.operation_name}: {event.error}"</span>
+            )
+
+        <span class="keyword">elif</span> <span class="function">isinstance</span>(event, RateLimitEvent):
+            <span class="keyword">self</span>.rate_limit_waits += 1
+            logger.debug(
+                <span class="string">f"Rate limit for {event.operation_name}, "</span>
+                <span class="string">f"{event.tokens_remaining} tokens remaining"</span>
+            )
+
+monitor = ResilienceMonitor()
+
+<span class="keyword">async for</span> item <span class="keyword">in</span> resilient_stream(...):
+    monitor.handle_event(item)
+    <span class="comment"># Process item...</span>
+
+<span class="function">print</span>(<span class="string">f"Total retries: {monitor.retry_count}"</span>)
+<span class="function">print</span>(<span class="string">f"Total delay from retries: {monitor.total_delay}s"</span>)</code></pre>
 
             <h2>Next Steps</h2>
             <ul>
                 <li><a href="agent-system.html">Agent System</a> - Integrate resilience into agents</li>
-                <li><a href="tools.html">Tools</a> - Add retry logic to tools</li>
-                <li><a href="multi-agent.html">Multi-Agent</a> - Rate limiting in multi-agent systems</li>
+                <li><a href="tools.html">Tools</a> - Add resilience to custom tools</li>
+                <li><a href="events.html">Events</a> - Handle resilience events</li>
+                <li><a href="logic-flows.html">Logic Flows</a> - Combine with conditional loops</li>
             </ul>
         </main>
     </div>

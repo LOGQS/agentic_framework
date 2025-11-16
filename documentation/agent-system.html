@@ -211,6 +211,10 @@
             <h2>Input Mapping</h2>
             <p>Define how prompts are built from context. Each entry specifies a context key and order:</p>
 
+            <div class="alert">
+                <strong>Note:</strong> The <code>role</code> and <code>order</code> fields only work when using <code>prompt_builder=create_message_prompt_builder()</code>. The default prompt builder only uses <code>context_key</code> and concatenates entries in list order.
+            </div>
+
             <pre><code>input_mapping=[
     {
         <span class="string">"context_key"</span>: <span class="string">"literal:You are a helpful AI assistant."</span>,

@@ -83,63 +83,130 @@
             <p class="subtitle">Build conditional loops and multi-step agent execution</p>
 
             <h2>Overview</h2>
-            <p>Logic flows enable agents to execute multiple steps based on conditions. Instead of single-shot execution, agents can loop, make decisions, and execute complex workflows.</p>
+            <p>Logic flows enable agents to execute multiple steps based on conditions. Instead of single-shot execution, agents can loop, make decisions, and execute complex workflows using the <code>LogicRunner</code> class.</p>
 
             <h2>LogicRunner Class</h2>
-            <p>The core abstraction for conditional agent loops:</p>
+            <p>The core class for managing conditional agent loops:</p>
 
             <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> LogicRunner, LogicConfig, LogicCondition
 
 config = LogicConfig(
     logic_id=<span class="string">"my_loop"</span>,
     max_iterations=10,
-    stop_conditions=[...]  <span class="comment"># List of LogicCondition objects</span>
+    stop_conditions=[...],  <span class="comment"># List of LogicCondition objects</span>
+    loop_until_conditions=[...]
 )
 
 runner = LogicRunner(agent_runner, context, patterns, config)
 
-<span class="comment"># Execute until stop condition</span>
-<span class="keyword">async for</span> event <span class="keyword">in</span> runner.run_stream(initial_input):
-    <span class="keyword">if</span> event.type == <span class="string">"step_complete"</span>:
+<span class="comment"># Execute with streaming events</span>
+<span class="keyword">async for</span> event <span class="keyword">in</span> runner.run_stream(<span class="string">"initial input"</span>):
+    <span class="keyword">if</span> <span class="function">isinstance</span>(event, StepCompleteEvent):
         <span class="function">print</span>(<span class="string">f"Step {event.result.iteration} done"</span>)</code></pre>
 
-            <h2>Stop Conditions</h2>
-            <p>Define when the logic flow should terminate using LogicCondition:</p>
+            <h2>LogicConfig</h2>
+            <p>Configuration for logic flow execution:</p>
 
-            <h3>Pattern-Based Conditions</h3>
-            <p>Stop when a specific pattern is detected in the response:</p>
+            <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> LogicConfig, ProcessingMode
+
+config = LogicConfig(
+    logic_id=<span class="string">"research_loop"</span>,
+    max_iterations=20,                    <span class="comment"># Safety limit</span>
+    stop_conditions=[...],                <span class="comment"># Conditions to stop loop</span>
+    loop_until_conditions=[...],          <span class="comment"># Loop until satisfied</span>
+    break_on_error=<span class="keyword">True</span>,                  <span class="comment"># Stop on agent errors</span>
+    processing_mode=ProcessingMode.THREAD, <span class="comment"># Default processing mode</span>
+    context_health_checks=[...]           <span class="comment"># Monitor context health</span>
+)</code></pre>
+
+            <h2>LogicCondition</h2>
+            <p>Define conditions for when to stop or continue looping:</p>
+
+            <h3>Basic Structure</h3>
             <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> LogicCondition
 
-<span class="comment"># Stop when "DONE" appears in response</span>
-stop_on_done = LogicCondition(
+condition = LogicCondition(
+    pattern_set=<span class="string">"default"</span>,       <span class="comment"># Pattern set name</span>
+    pattern_name=<span class="string">"done"</span>,         <span class="comment"># Pattern/text to match</span>
+    match_type=<span class="string">"contains"</span>,       <span class="comment"># "contains" | "equals" | "regex"</span>
+    target=<span class="string">"response"</span>,           <span class="comment"># "response" | "reasoning" | "tool_output" | "context:{key}"</span>
+    evaluation_point=<span class="string">"auto"</span>     <span class="comment"># When to evaluate (see below)</span>
+)</code></pre>
+
+            <h3>Match Types</h3>
+
+            <h4>1. Contains (Pattern Detection)</h4>
+            <p>Check if a specific pattern appears in the output:</p>
+            <pre><code><span class="comment"># Stop when "done" pattern detected in response</span>
+LogicCondition(
     pattern_set=<span class="string">"default"</span>,
-    pattern_name=<span class="string">"response"</span>,
+    pattern_name=<span class="string">"done"</span>,
     match_type=<span class="string">"contains"</span>,
     target=<span class="string">"response"</span>
 )</code></pre>
 
-            <h3>Context-Based Conditions</h3>
-            <p>Stop based on context values:</p>
-            <pre><code><span class="comment"># Stop when context key matches value</span>
-stop_when_complete = LogicCondition(
+            <h4>2. Equals (Exact Match)</h4>
+            <p>Check if text exactly equals a value:</p>
+            <pre><code><span class="comment"># Stop when context key equals "complete"</span>
+LogicCondition(
     pattern_set=<span class="string">"default"</span>,
-    pattern_name=<span class="string">"response"</span>,
+    pattern_name=<span class="string">"complete"</span>,
     match_type=<span class="string">"equals"</span>,
-    target=<span class="string">"context:task_complete"</span>
+    target=<span class="string">"context:status"</span>
 )</code></pre>
 
-            <h3>Regex Conditions</h3>
-            <p>Stop when regex pattern matches:</p>
-            <pre><code><span class="comment"># Stop when confidence score > 95% appears in response</span>
-stop_on_high_confidence = LogicCondition(
-    pattern_set=<span class="string">"default"</span>,
-    pattern_name=<span class="string">"response"</span>,
+            <h4>3. Regex (Pattern Matching)</h4>
+            <p>Use regular expressions for complex pattern matching:</p>
+            <pre><code><span class="comment"># Stop when confidence score >= 95% appears</span>
+LogicCondition(
+    pattern_set=<span class="string">"default"</span>,  <span class="comment"># Not used for regex</span>
+    pattern_name=<span class="string">r"confidence:\s*(\d+)%"</span>,
     match_type=<span class="string">"regex"</span>,
     target=<span class="string">"response"</span>
 )</code></pre>
 
+            <h3>Target Options</h3>
+            <ul>
+                <li><code>"response"</code> - Check agent's response segment</li>
+                <li><code>"reasoning"</code> - Check reasoning segments</li>
+                <li><code>"tool_output"</code> - Check tool execution results</li>
+                <li><code>"context:key"</code> - Check specific context key (e.g., <code>"context:task_status"</code>)</li>
+            </ul>
+
+            <h3>Evaluation Points</h3>
+            <p>Control <strong>when</strong> conditions are evaluated during agent execution. This is crucial for early stopping and fine-grained control:</p>
+
+            <pre><code><span class="comment"># Common evaluation points:</span>
+<span class="string">"auto"</span>           <span class="comment"># Smart default (context → step_complete, patterns → llm_complete)</span>
+<span class="string">"llm_chunk"</span>      <span class="comment"># On every LLM chunk as it streams (real-time, for early exit)</span>
+<span class="string">"llm_complete"</span>   <span class="comment"># After LLM generation completes</span>
+<span class="string">"tool_detected"</span>  <span class="comment"># When tool pattern detected in output</span>
+<span class="string">"tool_finished"</span>  <span class="comment"># After tool execution completes</span>
+<span class="string">"step_complete"</span>  <span class="comment"># After entire agent step completes (most common)</span>
+<span class="string">"any_event"</span>      <span class="comment"># On every event (most frequent, use sparingly)</span>
+
+<span class="comment"># Advanced evaluation points (for fine-grained control):</span>
+<span class="string">"pattern_start"</span>  <span class="comment"># When a pattern starts being detected</span>
+<span class="string">"pattern_end"</span>    <span class="comment"># When a non-tool pattern completes</span>
+<span class="string">"pattern_content"</span><span class="comment"># During pattern content streaming</span>
+<span class="string">"tool_start"</span>     <span class="comment"># When tool execution begins</span>
+<span class="string">"tool_output"</span>    <span class="comment"># During tool output streaming</span>
+<span class="string">"context_write"</span>  <span class="comment"># When context is written</span>
+<span class="string">"error"</span>          <span class="comment"># When an error occurs</span>
+<span class="string">"status"</span>         <span class="comment"># On status changes</span></code></pre>
+
+            <h4>Example: Early Exit on Streaming</h4>
+            <pre><code><span class="comment"># Stop immediately when "ABORT" appears in LLM stream</span>
+LogicCondition(
+    pattern_set=<span class="string">"default"</span>,
+    pattern_name=<span class="string">r"ABORT"</span>,
+    match_type=<span class="string">"regex"</span>,
+    target=<span class="string">"response"</span>,
+    evaluation_point=<span class="string">"llm_chunk"</span>  <span class="comment"># Check during streaming!</span>
+)</code></pre>
+
             <h2>Helper Functions</h2>
-            <p>Use helper functions for common loop patterns:</p>
+            <p>Convenient functions for common loop patterns:</p>
 
             <h3>Loop N Times</h3>
             <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> loop_n_times
@@ -147,7 +214,7 @@ stop_on_high_confidence = LogicCondition(
 runner = loop_n_times(agent_runner, context, patterns, n=5)
 
 <span class="keyword">async for</span> event <span class="keyword">in</span> runner.run_stream(<span class="string">"Execute 5 iterations"</span>):
-    <span class="keyword">if</span> event.type == <span class="string">"step_complete"</span>:
+    <span class="keyword">if</span> <span class="function">isinstance</span>(event, StepCompleteEvent):
         result = event.result
         <span class="function">print</span>(<span class="string">f"Iteration {result.iteration}: {result.status}"</span>)</code></pre>
 
@@ -159,13 +226,13 @@ runner = loop_until_pattern(
     context,
     patterns,
     pattern_set=<span class="string">"default"</span>,
-    pattern_name=<span class="string">"response"</span>,
+    pattern_name=<span class="string">"done"</span>,
     target=<span class="string">"response"</span>,
     max_iterations=20
 )
 
-<span class="keyword">async for</span> event <span class="keyword">in</span> runner.run_stream(<span class="string">"Complete this multi-step task"</span>):
-    <span class="keyword">if</span> event.type == <span class="string">"step_complete"</span>:
+<span class="keyword">async for</span> event <span class="keyword">in</span> runner.run_stream(<span class="string">"Complete task"</span>):
+    <span class="keyword">if</span> <span class="function">isinstance</span>(event, StepCompleteEvent):
         <span class="function">print</span>(<span class="string">f"Step {event.result.iteration} done"</span>)</code></pre>
 
             <h3>Loop Until Regex</h3>
@@ -175,7 +242,7 @@ runner = loop_until_regex(
     agent_runner,
     context,
     patterns,
-    regex_pattern=<span class="string">r"confidence.*?(\d+)%"</span>,
+    regex_pattern=<span class="string">r"confidence:\s*([8-9]\d|100)%"</span>,  <span class="comment"># 80-100%</span>
     target=<span class="string">"response"</span>,
     max_iterations=10
 )
@@ -183,179 +250,211 @@ runner = loop_until_regex(
 <span class="keyword">async for</span> event <span class="keyword">in</span> runner.run_stream(<span class="string">"Refine until confident"</span>):
     <span class="keyword">pass</span></code></pre>
 
-            <h3>Verification Loop</h3>
-            <p>Keep trying until verification succeeds:</p>
-            <pre><code>flow = LogicFlow(
-    runner=runner,
-    max_iterations=5,
-    stop_conditions=[
-        ToolResultStopCondition(
-            tool_name=<span class="string">"verify"</span>,
-            condition=<span class="keyword">lambda</span> r: r.success <span class="keyword">and</span> r.output.get(<span class="string">"valid"</span>) == <span class="keyword">True</span>
+            <h3>Stop on Error</h3>
+            <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> stop_on_error
+
+runner = stop_on_error(
+    agent_runner,
+    context,
+    patterns,
+    max_iterations=100
+)
+
+<span class="comment"># Will stop immediately on any agent error</span></code></pre>
+
+            <h2>Context Health Monitoring</h2>
+            <p>Monitor context size and prevent runaway memory usage:</p>
+
+            <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> ContextHealthCheck, LogicConfig
+
+config = LogicConfig(
+    logic_id=<span class="string">"monitored_loop"</span>,
+    max_iterations=50,
+    context_health_checks=[
+        <span class="comment"># Warn if any context key exceeds 100KB</span>
+        ContextHealthCheck(
+            check_type=<span class="string">"size"</span>,
+            key_pattern=<span class="string">"*"</span>,
+            threshold=100_000,
+            action=<span class="string">"warn"</span>,
+            evaluation_point=<span class="string">"step_complete"</span>
+        ),
+        <span class="comment"># Stop if llm_output versions exceed 50</span>
+        ContextHealthCheck(
+            check_type=<span class="string">"version_count"</span>,
+            key_pattern=<span class="string">"llm_output:*"</span>,
+            threshold=50,
+            action=<span class="string">"stop"</span>,
+            evaluation_point=<span class="string">"step_complete"</span>,
+            max_versions_limit=10000
         )
     ]
-)
-
-<span class="keyword">async for</span> event <span class="keyword">in</span> flow.run(<span class="string">"Generate and verify solution"</span>):
-    <span class="keyword">pass</span>  <span class="comment"># Loops until verification passes</span></code></pre>
-
-            <h3>Incremental Refinement</h3>
-            <p>Refine output until quality threshold met:</p>
-            <pre><code><span class="keyword">class</span> <span class="function">QualityStopCondition</span>(StopCondition):
-    <span class="keyword">def</span> <span class="function">check</span>(<span class="keyword">self</span>, result, context):
-        quality = context.get_str(<span class="string">"quality_score"</span>)
-        <span class="keyword">return</span> quality <span class="keyword">and</span> <span class="function">float</span>(quality) >= 0.9
-
-flow = LogicFlow(
-    runner=runner,
-    max_iterations=10,
-    stop_conditions=[QualityStopCondition()],
-    loop_input_fn=<span class="keyword">lambda</span> prev_result: <span class="string">"Improve the previous output"</span>
 )</code></pre>
 
-            <h2>Loop Input Functions</h2>
-            <p>Customize input for each iteration:</p>
+            <h3>Health Check Types</h3>
+            <ul>
+                <li><code>"size"</code> - Monitor byte size of context values</li>
+                <li><code>"version_count"</code> - Monitor number of versions stored for keys</li>
+            </ul>
 
-            <pre><code><span class="keyword">def</span> <span class="function">build_loop_input</span>(previous_result: AgentStepResult) -> str:
-    <span class="comment"># Use previous output to guide next step</span>
-    <span class="keyword">if</span> previous_result.status == AgentStatus.TOOL_EXECUTED:
-        <span class="keyword">return</span> <span class="string">"Analyze the tool results and continue"</span>
-    <span class="keyword">else</span>:
-        <span class="keyword">return</span> <span class="string">"Continue with next step"</span>
+            <h3>Key Pattern Matching</h3>
+            <ul>
+                <li><code>"*"</code> - All keys</li>
+                <li><code>"llm_output:*"</code> - All keys starting with prefix</li>
+                <li><code>"tool_result:*"</code> - Glob pattern matching</li>
+            </ul>
 
-flow = LogicFlow(
-    runner=runner,
-    max_iterations=15,
-    stop_conditions=[StatusStopCondition(AgentStatus.DONE)],
-    loop_input_fn=build_loop_input
-)</code></pre>
+            <h3>Actions</h3>
+            <ul>
+                <li><code>"warn"</code> - Emit ContextHealthEvent but continue</li>
+                <li><code>"stop"</code> - Stop the logic loop immediately</li>
+            </ul>
 
-            <h2>Error Handling</h2>
-            <p>Handle errors gracefully in logic flows:</p>
+            <h2>Stop vs Loop-Until Conditions</h2>
 
-            <pre><code>flow = LogicFlow(
-    runner=runner,
-    max_iterations=10,
+            <h3>Stop Conditions</h3>
+            <p>Terminate the loop when condition is met:</p>
+            <pre><code>config = LogicConfig(
+    logic_id=<span class="string">"example"</span>,
     stop_conditions=[
-        StatusStopCondition(AgentStatus.DONE),
-        StatusStopCondition(AgentStatus.ERROR)  <span class="comment"># Stop on error</span>
+        <span class="comment"># Stop if "ERROR" appears</span>
+        LogicCondition(
+            pattern_set=<span class="string">"default"</span>,
+            pattern_name=<span class="string">r"ERROR"</span>,
+            match_type=<span class="string">"regex"</span>,
+            target=<span class="string">"response"</span>
+        )
     ]
+)</code></pre>
+
+            <h3>Loop-Until Conditions</h3>
+            <p>Continue looping until condition is satisfied:</p>
+            <pre><code>config = LogicConfig(
+    logic_id=<span class="string">"example"</span>,
+    loop_until_conditions=[
+        <span class="comment"># Loop until "COMPLETE" appears</span>
+        LogicCondition(
+            pattern_set=<span class="string">"default"</span>,
+            pattern_name=<span class="string">r"COMPLETE"</span>,
+            match_type=<span class="string">"regex"</span>,
+            target=<span class="string">"response"</span>
+        )
+    ]
+)</code></pre>
+
+            <h2>Real-World Example: Research Agent</h2>
+            <p>Agent that iteratively researches until comprehensive answer is found:</p>
+
+            <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> (
+    LogicRunner, LogicConfig, LogicCondition,
+    ContextHealthCheck, ProcessingMode
 )
 
-final_result = <span class="keyword">None</span>
-<span class="keyword">async for</span> event <span class="keyword">in</span> flow.run(user_input):
-    <span class="keyword">if</span> event.type == <span class="string">"step_complete"</span>:
-        final_result = event.result
+<span class="comment"># Configure research loop</span>
+config = LogicConfig(
+    logic_id=<span class="string">"research_agent"</span>,
+    max_iterations=10,
 
-<span class="keyword">if</span> final_result.status == AgentStatus.ERROR:
-    <span class="function">print</span>(<span class="string">f"Flow failed: {final_result.error_message}"</span>)
-<span class="keyword">else</span>:
-    <span class="function">print</span>(<span class="string">f"Flow completed: {final_result.segments.response}"</span>)</code></pre>
+    <span class="comment"># Stop on errors</span>
+    break_on_error=<span class="keyword">True</span>,
 
-            <h2>Iteration Limits</h2>
-            <p>Always set <code>max_iterations</code> to prevent infinite loops:</p>
+    <span class="comment"># Stop conditions</span>
+    stop_conditions=[
+        <span class="comment"># Stop if agent says DONE</span>
+        LogicCondition(
+            pattern_set=<span class="string">"default"</span>,
+            pattern_name=<span class="string">"done"</span>,
+            match_type=<span class="string">"contains"</span>,
+            target=<span class="string">"response"</span>
+        ),
+        <span class="comment"># Stop if comprehensive answer detected</span>
+        LogicCondition(
+            pattern_set=<span class="string">"default"</span>,
+            pattern_name=<span class="string">r"(?=.*sources)(?=.{500,})"</span>,  <span class="comment"># 500+ chars with "sources"</span>
+            match_type=<span class="string">"regex"</span>,
+            target=<span class="string">"response"</span>,
+            evaluation_point=<span class="string">"llm_complete"</span>
+        )
+    ],
 
-            <pre><code>flow = LogicFlow(
-    runner=runner,
-    max_iterations=100,  <span class="comment"># Safety limit</span>
-    stop_conditions=[...]
+    <span class="comment"># Monitor context health</span>
+    context_health_checks=[
+        ContextHealthCheck(
+            check_type=<span class="string">"size"</span>,
+            key_pattern=<span class="string">"*"</span>,
+            threshold=500_000,  <span class="comment"># 500KB limit</span>
+            action=<span class="string">"stop"</span>
+        )
+    ],
+
+    processing_mode=ProcessingMode.THREAD
 )
 
-<span class="comment"># Flow will stop at max_iterations even if conditions not met</span></code></pre>
+runner = LogicRunner(agent_runner, context, patterns, config)
+
+<span class="comment"># Execute research loop</span>
+<span class="keyword">async for</span> event <span class="keyword">in</span> runner.run_stream(<span class="string">"Research quantum computing applications"</span>):
+    <span class="keyword">if</span> <span class="function">isinstance</span>(event, StepCompleteEvent):
+        <span class="function">print</span>(<span class="string">f"Research iteration {event.result.iteration} complete"</span>)
+        <span class="function">print</span>(<span class="string">f"Response: {event.result.segments.response[:100]}..."</span>)
+    <span class="keyword">elif</span> <span class="function">isinstance</span>(event, StatusEvent):
+        <span class="function">print</span>(<span class="string">f"Status: {event.message}"</span>)
+    <span class="keyword">elif</span> <span class="function">isinstance</span>(event, ContextHealthEvent):
+        <span class="function">print</span>(<span class="string">f"Context health warning: {event.check_type}"</span>)</code></pre>
+
+            <h2>Batch Mode</h2>
+            <p>For synchronous execution without streaming:</p>
+
+            <pre><code><span class="comment"># Collect all results at once</span>
+results = runner.run(<span class="string">"Execute task"</span>)
+
+<span class="keyword">for</span> i, result <span class="keyword">in</span> <span class="function">enumerate</span>(results):
+    <span class="function">print</span>(<span class="string">f"Iteration {i + 1}: {result.status}"</span>)
+    <span class="keyword">if</span> result.segments.response:
+        <span class="function">print</span>(<span class="string">f"  Response: {result.segments.response}"</span>)</code></pre>
 
             <div class="alert">
-                <strong>Best Practice:</strong> Always include an error status stop condition to handle failures gracefully.
+                <strong>Note:</strong> The <code>run()</code> method cannot be called from an async context. Use <code>run_stream()</code> in async code.
             </div>
-
-            <h2>Context Monitoring</h2>
-            <p>Monitor context health during execution:</p>
-
-            <pre><code><span class="keyword">class</span> <span class="function">ContextHealthCondition</span>(StopCondition):
-    <span class="keyword">def</span> <span class="function">check</span>(<span class="keyword">self</span>, result, context):
-        <span class="comment"># Check if context is getting too large</span>
-        keys = context.list_keys()
-        <span class="keyword">if</span> <span class="function">len</span>(keys) > 1000:
-            <span class="keyword">return</span> <span class="keyword">True</span>  <span class="comment"># Stop if too many keys</span>
-
-        <span class="comment"># Check for specific markers</span>
-        shutdown_signal = context.get_str(<span class="string">"shutdown"</span>)
-        <span class="keyword">if</span> shutdown_signal == <span class="string">"true"</span>:
-            <span class="keyword">return</span> <span class="keyword">True</span>
-
-        <span class="keyword">return</span> <span class="keyword">False</span></code></pre>
-
-            <h2>Multi-Condition Logic</h2>
-            <p>Combine multiple stop conditions with OR logic:</p>
-
-            <pre><code>flow = LogicFlow(
-    runner=runner,
-    max_iterations=50,
-    stop_conditions=[
-        StatusStopCondition(AgentStatus.DONE),
-        StatusStopCondition(AgentStatus.ERROR),
-        ToolResultStopCondition(<span class="string">"verify"</span>, <span class="keyword">lambda</span> r: r.success),
-        ContextStopCondition(<span class="string">"abort"</span>, <span class="keyword">lambda</span> v: v == <span class="string">b"true"</span>)
-    ]
-)
-
-<span class="comment"># Stops when ANY condition is met</span></code></pre>
-
-            <h2>Real-World Example</h2>
-            <p>Research agent that iterates until comprehensive answer found:</p>
-
-            <pre><code><span class="keyword">class</span> <span class="function">ComprehensiveAnswerCondition</span>(StopCondition):
-    <span class="keyword">def</span> <span class="function">check</span>(<span class="keyword">self</span>, result, context):
-        response = result.segments.response
-        <span class="keyword">if</span> <span class="keyword">not</span> response:
-            <span class="keyword">return</span> <span class="keyword">False</span>
-
-        <span class="comment"># Check if response is comprehensive (simple heuristic)</span>
-        <span class="keyword">if</span> <span class="function">len</span>(response) < 200:
-            <span class="keyword">return</span> <span class="keyword">False</span>
-
-        <span class="comment"># Check if sources were cited</span>
-        <span class="keyword">if</span> <span class="string">"source"</span> <span class="keyword">not in</span> response.lower():
-            <span class="keyword">return</span> <span class="keyword">False</span>
-
-        <span class="keyword">return</span> <span class="keyword">True</span>
-
-<span class="keyword">def</span> <span class="function">research_loop_input</span>(prev_result):
-    <span class="keyword">if</span> prev_result <span class="keyword">is</span> <span class="keyword">None</span>:
-        <span class="keyword">return</span> <span class="keyword">None</span>  <span class="comment"># Use initial input</span>
-
-    <span class="comment"># Ask agent to expand on previous findings</span>
-    <span class="keyword">return</span> <span class="string">"Expand on previous findings with more detail and sources"</span>
-
-research_flow = LogicFlow(
-    runner=research_agent_runner,
-    max_iterations=5,
-    stop_conditions=[
-        ComprehensiveAnswerCondition(),
-        StatusStopCondition(AgentStatus.ERROR)
-    ],
-    loop_input_fn=research_loop_input
-)
-
-<span class="keyword">async for</span> event <span class="keyword">in</span> research_flow.run(<span class="string">"Research quantum computing applications"</span>):
-    <span class="keyword">if</span> event.type == <span class="string">"step_complete"</span>:
-        <span class="function">print</span>(<span class="string">f"Research iteration {event.result.iteration} complete"</span>)</code></pre>
 
             <h2>Best Practices</h2>
             <ul>
-                <li>Always set reasonable <code>max_iterations</code> limits</li>
-                <li>Include error status in stop conditions</li>
-                <li>Use context to communicate between iterations</li>
-                <li>Provide clear loop input to guide agent progress</li>
-                <li>Monitor iteration count and context size</li>
-                <li>Test stop conditions thoroughly to avoid infinite loops</li>
-                <li>Log iteration results for debugging</li>
+                <li><strong>Always set max_iterations</strong> - Prevent infinite loops with reasonable limits</li>
+                <li><strong>Use evaluation_point wisely</strong> - <code>"llm_chunk"</code> for early exit, <code>"step_complete"</code> for accuracy</li>
+                <li><strong>Monitor context health</strong> - Prevent memory issues with health checks</li>
+                <li><strong>Set break_on_error=True</strong> - Stop immediately on agent errors</li>
+                <li><strong>Combine stop and loop-until</strong> - Use both for robust flow control</li>
+                <li><strong>Use specific evaluation points</strong> - Don't rely solely on "auto" for critical conditions</li>
+                <li><strong>Test conditions thoroughly</strong> - Verify regex patterns and thresholds before production</li>
             </ul>
+
+            <h2>Event Handling</h2>
+            <p>LogicRunner emits various events during execution:</p>
+
+            <pre><code><span class="keyword">from</span> agentic.events <span class="keyword">import</span> (
+    StatusEvent, StepCompleteEvent, ContextHealthEvent,
+    LLMChunkEvent, LLMCompleteEvent, ToolEndEvent
+)
+
+<span class="keyword">async for</span> event <span class="keyword">in</span> runner.run_stream(user_input):
+    <span class="keyword">if</span> <span class="function">isinstance</span>(event, StatusEvent):
+        <span class="function">print</span>(<span class="string">f"[{event.status}] {event.message}"</span>)
+
+    <span class="keyword">elif</span> <span class="function">isinstance</span>(event, StepCompleteEvent):
+        <span class="function">print</span>(<span class="string">f"Iteration {event.result.iteration} done"</span>)
+
+    <span class="keyword">elif</span> <span class="function">isinstance</span>(event, ContextHealthEvent):
+        <span class="function">print</span>(<span class="string">f"Health: {event.key} - {event.check_type}"</span>)
+
+    <span class="keyword">elif</span> <span class="function">isinstance</span>(event, LLMChunkEvent):
+        <span class="function">print</span>(event.chunk, end=<span class="string">""</span>)  <span class="comment"># Stream LLM output</span></code></pre>
 
             <h2>Next Steps</h2>
             <ul>
                 <li><a href="agent-system.html">Agent System</a> - Configure agents for logic flows</li>
-                <li><a href="multi-agent.html">Multi-Agent</a> - Coordinate multiple agents</li>
-                <li><a href="events.html">Events</a> - Handle flow events</li>
+                <li><a href="multi-agent.html">Multi-Agent</a> - Coordinate multiple agents with logic flows</li>
+                <li><a href="events.html">Events</a> - Handle flow events in detail</li>
+                <li><a href="patterns.html">Patterns</a> - Define patterns for conditions</li>
             </ul>
         </main>
     </div>

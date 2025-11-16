@@ -163,14 +163,14 @@ tools.register(search_tool)</code></pre>
                 <p>Implement the <code>LLMProvider</code> protocol for your LLM:</p>
                 <pre><code><span class="keyword">class</span> <span class="function">MyLLMProvider</span>:
     <span class="keyword">def</span> <span class="function">generate</span>(<span class="keyword">self</span>, prompt, **kwargs):
-        <span class="comment"># Call your LLM API</span>
+        <span class="comment"># Call your LLM API (synchronous)</span>
         <span class="keyword">return</span> <span class="string">"LLM response text"</span>
 
     <span class="keyword">async def</span> <span class="function">stream</span>(<span class="keyword">self</span>, prompt, **kwargs):
-        <span class="comment"># Stream chunks from your LLM</span>
-        response = <span class="keyword">self</span>.generate(prompt, **kwargs)
-        <span class="keyword">for</span> chunk <span class="keyword">in</span> response.split():
-            <span class="keyword">yield</span> chunk + <span class="string">" "</span>
+        <span class="comment"># Default implementation: yield full response</span>
+        <span class="comment"># Override with real streaming for production</span>
+        text = <span class="keyword">self</span>.generate(prompt, **kwargs)
+        <span class="keyword">yield</span> text
 
 provider = MyLLMProvider()</code></pre>
             </div>
