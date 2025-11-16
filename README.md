@@ -1,4 +1,4 @@
-# Agentic Framework
+# Aegeantic
 
 A framework for building LLM agents with versioned context, persistent storage, streaming execution, and multi-agent orchestration.
 
@@ -23,7 +23,7 @@ A framework for building LLM agents with versioned context, persistent storage, 
 ### From PyPI (Recommended)
 
 ```bash
-pip install agentic-framework
+pip install aegeantic
 ```
 
 ### For Development

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Core Concepts - Agentic Framework</title>
+    <title>Core Concepts - Aegeantic Framework</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         :root {
@@ -51,7 +51,7 @@
 <body>
     <div class="container">
         <aside class="sidebar">
-            <div class="logo">Agentic</div>
+            <div class="logo">Aegeantic</div>
             <nav>
                 <div class="nav-section">
                     <div class="nav-section-title">Getting Started</div>
@@ -82,10 +82,10 @@
 
         <main class="main-content">
             <h1>Core Concepts</h1>
-            <p class="subtitle">Understanding the fundamental architecture of Agentic</p>
+            <p class="subtitle">Understanding the fundamental architecture of Aegeantic</p>
 
             <h2>Architecture Overview</h2>
-            <p>Agentic is built around discrete, composable components that work together to enable agent execution. Each component has a single, well-defined responsibility:</p>
+            <p>Aegeantic is built around discrete, composable components that work together to enable agent execution. Each component has a single, well-defined responsibility:</p>
 
             <div class="concept-card">
                 <h4>Storage Layer</h4>
@@ -113,7 +113,7 @@
             </div>
 
             <h2>Context Management</h2>
-            <p>Context is the core state management system in Agentic. Every piece of agent state is stored in a versioned context.</p>
+            <p>Context is the core state management system in Aegeantic. Every piece of agent state is stored in a versioned context.</p>
 
             <h3>Key Features</h3>
             <ul>
@@ -200,7 +200,7 @@ Here's what I found about Python...
 
             <h3>Custom Patterns</h3>
             <p>Create custom pattern sets for different LLM formats:</p>
-            <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> PatternSet, Pattern, SegmentType
+            <pre><code><span class="keyword">from</span> Aegeantic <span class="keyword">import</span> PatternSet, Pattern, SegmentType
 
 custom_patterns = PatternSet(
     name=<span class="string">"custom"</span>,
@@ -225,7 +225,7 @@ custom_patterns = PatternSet(
 patterns.register_pattern_set(custom_patterns)</code></pre>
 
             <h2>Tools</h2>
-            <p>Tools are functions that agents can execute. Agentic provides validation, timeout handling, and multiple execution modes.</p>
+            <p>Tools are functions that agents can execute. Aegeantic provides validation, timeout handling, and multiple execution modes.</p>
 
             <h3>Tool Definition</h3>
             <pre><code><span class="keyword">def</span> <span class="function">calculate</span>(args):
@@ -262,7 +262,7 @@ tool = create_tool(
             </ul>
 
             <h2>Events</h2>
-            <p>Everything in Agentic flows through events. Events enable streaming, real-time monitoring, and reactive patterns.</p>
+            <p>Everything in Aegeantic flows through events. Events enable streaming, real-time monitoring, and reactive patterns.</p>
 
             <h3>Event Types</h3>
             <ul>

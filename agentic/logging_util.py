@@ -1,5 +1,5 @@
 """
-Structured logging utilities for the agentic framework.
+Structured logging utilities for the aegeantic framework.
 
 Provides consistent logging across all modules with structured context.
 Uses Python's built-in logging module for zero additional dependencies.

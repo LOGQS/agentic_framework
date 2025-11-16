@@ -1,5 +1,5 @@
 """
-Agentic Framework: A robust agentic system with versioned context and RocksDB storage.
+Aegeantic Framework: A robust agentic system with versioned context and RocksDB storage.
 """
 
 # Core types and enums
