@@ -20,11 +20,21 @@ A framework for building LLM agents with versioned context, persistent storage, 
 
 ## Installation
 
+### From PyPI (Recommended)
+
 ```bash
-pip install -r requirements.txt
+pip install agentic-framework
 ```
 
-Requires Python 3.9+ and rocksdict >= 0.3.0
+### For Development
+
+```bash
+git clone https://github.com/LOGQS/agentic_framework.git
+cd agentic_framework
+pip install -e .
+```
+
+**Requirements:** Python 3.9+ and rocksdict >= 0.3.0
 
 ## Quick Start
 

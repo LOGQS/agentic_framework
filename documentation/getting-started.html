@@ -85,12 +85,16 @@
             <p class="subtitle">Get up and running with Agentic in 5 minutes</p>
 
             <h2>Installation</h2>
-            <p>Install Agentic from GitHub:</p>
+            <p>Install Agentic Framework from PyPI:</p>
+            <pre><code>pip install agentic-framework</code></pre>
+
+            <p><strong>For development:</strong></p>
             <pre><code>git clone https://github.com/LOGQS/agentic_framework.git
 cd agentic_framework
-pip install -r requirements.txt</code></pre>
+pip install -e .</code></pre>
+
             <div class="alert">
-                <strong>Note:</strong> RocksDB (via <code>rocksdict</code>) is required for persistent storage. For testing, you can use <code>InMemoryStorage</code> which requires no additional dependencies.
+                <strong>Note:</strong> Requires Python 3.9+. RocksDB (via <code>rocksdict</code>) is installed automatically for persistent storage. For testing, you can use <code>InMemoryStorage</code> which requires no additional dependencies.
             </div>
 
             <h2>Your First Agent</h2>
