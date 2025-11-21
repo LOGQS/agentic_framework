@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Graph Orchestration - Aegeantic Framework</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --primary: #3b82f6; --primary-glow: rgba(59, 130, 246, 0.3); --accent: #8b5cf6;
+            --bg-primary: #0a0a0a; --bg-secondary: #1a1a1a; --bg-tertiary: #2a2a2a;
+            --text-primary: #f8f9fa; --text-secondary: #a0a0a0; --text-muted: #6b7280;
+            --border: rgba(255, 255, 255, 0.1); --sidebar-width: 280px;
+            --shadow: 0 8px 32px rgba(0, 0, 0, 0.4); --shadow-lg: 0 20px 60px rgba(0, 0, 0, 0.6);
+        }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif; line-height: 1.7; color: var(--text-primary); background: var(--bg-primary); }
+        .container { display: flex; min-height: 100vh; }
+        .sidebar { width: var(--sidebar-width); background: var(--bg-secondary); border-right: 1px solid var(--border); position: fixed; height: 100vh; overflow-y: auto; padding: 2rem 0; }
+        .sidebar::-webkit-scrollbar { width: 6px; }
+        .sidebar::-webkit-scrollbar-thumb { background: var(--bg-tertiary); border-radius: 10px; }
+        .logo { padding: 0 1.5rem 1.5rem; font-size: 1.75rem; font-weight: 700; background: linear-gradient(135deg, var(--primary), var(--accent)); background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent; letter-spacing: -0.02em; margin-bottom: 1.5rem; }
+        .nav-section { margin-bottom: 2rem; }
+        .nav-section-title { padding: 0.5rem 1.5rem; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.1em; }
+        .nav-link { display: block; padding: 0.75rem 1.5rem; color: var(--text-secondary); text-decoration: none; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); font-size: 0.9rem; position: relative; }
+        .nav-link::before { content: ''; position: absolute; left: 0; top: 50%; transform: translateY(-50%); width: 3px; height: 0; background: linear-gradient(135deg, var(--primary), var(--accent)); border-radius: 0 3px 3px 0; transition: height 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+        .nav-link:hover { background: rgba(59, 130, 246, 0.1); color: var(--text-primary); }
+        .nav-link:hover::before { height: 60%; }
+        .nav-link.active { background: rgba(59, 130, 246, 0.15); color: var(--primary); font-weight: 500; }
+        .nav-link.active::before { height: 60%; }
+        .main-content { margin-left: var(--sidebar-width); flex: 1; padding: 4rem 4rem 4rem 5rem; max-width: 1000px; }
+        h1 { font-size: 3.5rem; margin-bottom: 1rem; font-weight: 700; letter-spacing: -0.03em; background: linear-gradient(135deg, var(--text-primary), var(--text-secondary)); background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        h2 { font-size: 2rem; margin-top: 3rem; margin-bottom: 1.25rem; font-weight: 600; letter-spacing: -0.02em; color: var(--text-primary); padding-bottom: 0.75rem; border-bottom: 1px solid var(--border); }
+        h3 { font-size: 1.5rem; margin-top: 2rem; margin-bottom: 1rem; font-weight: 600; letter-spacing: -0.01em; color: var(--text-primary); }
+        h4 { font-size: 1.2rem; margin-top: 1.5rem; margin-bottom: 0.75rem; font-weight: 600; color: var(--primary); }
+        p { margin-bottom: 1.25rem; color: var(--text-secondary); font-size: 1.05rem; }
+        .subtitle { font-size: 1.3rem; color: var(--text-secondary); margin-bottom: 2.5rem; line-height: 1.6; }
+        code { background: var(--bg-tertiary); padding: 0.3rem 0.6rem; border-radius: 8px; font-family: 'SF Mono', 'Monaco', monospace; font-size: 0.9em; color: var(--primary); border: 1px solid var(--border); }
+        pre { background: var(--bg-secondary); color: var(--text-primary); padding: 2rem; border-radius: 16px; overflow-x: auto; margin: 2rem 0; line-height: 1.6; border: 1px solid var(--border); box-shadow: var(--shadow); }
+        pre code { background: none; color: inherit; padding: 0; border: none; font-size: 0.9rem; }
+        .keyword { color: #ff79c6; } .string { color: #50fa7b; } .function { color: #8be9fd; } .comment { color: var(--text-muted); }
+        ul, ol { margin: 1.5rem 0; padding-left: 2rem; }
+        li { margin: 0.75rem 0; color: var(--text-secondary); }
+        li strong, li code { color: var(--text-primary); }
+        a { color: var(--primary); text-decoration: none; transition: color 0.2s; }
+        a:hover { color: var(--accent); }
+        .alert { padding: 1.5rem; border-radius: 16px; margin: 2rem 0; background: rgba(59, 130, 246, 0.1); border-left: 4px solid var(--primary); }
+        .alert strong { color: var(--primary); }
+        table { width: 100%; border-collapse: collapse; margin: 2rem 0; }
+        th, td { padding: 1rem; text-align: left; border-bottom: 1px solid var(--border); }
+        th { background: var(--bg-secondary); color: var(--primary); font-weight: 600; }
+        td { color: var(--text-secondary); }
+        td code { font-size: 0.85em; }
+        .strategy-box { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; margin: 1rem 0; }
+        .strategy-box h4 { margin-top: 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <aside class="sidebar">
+            <div class="logo">Aegeantic</div>
+            <nav>
+                <div class="nav-section">
+                    <div class="nav-section-title">Getting Started</div>
+                    <a href="index.html" class="nav-link">Overview</a>
+                    <a href="getting-started.html" class="nav-link">Quick Start</a>
+                    <a href="core-concepts.html" class="nav-link">Core Concepts</a>
+                </div>
+                <div class="nav-section">
+                    <div class="nav-section-title">Core Systems</div>
+                    <a href="agent-system.html" class="nav-link">Agent System</a>
+                    <a href="tools.html" class="nav-link">Tools</a>
+                    <a href="patterns.html" class="nav-link">Patterns</a>
+                    <a href="logic-flows.html" class="nav-link">Logic Flows</a>
+                    <a href="graph-orchestration.html" class="nav-link active">Graph Orchestration</a>
+                </div>
+                <div class="nav-section">
+                    <div class="nav-section-title">Advanced</div>
+                    <a href="multi-agent.html" class="nav-link">Multi-Agent</a>
+                    <a href="events.html" class="nav-link">Events</a>
+                    <a href="resilience.html" class="nav-link">Resilience</a>
+                    <a href="validation.html" class="nav-link">Validation</a>
+                </div>
+                <div class="nav-section">
+                    <div class="nav-section-title">Reference</div>
+                    <a href="api-reference.html" class="nav-link">API Reference</a>
+                </div>
+            </nav>
+        </aside>
+
+        <main class="main-content">
+            <h1>Graph Orchestration</h1>
+            <p class="subtitle">DAG-based workflow execution with dynamic scheduling, failure strategies, and visualization</p>
+
+            <h2>Overview</h2>
+            <p>GraphRunner enables you to orchestrate complex multi-agent workflows as directed acyclic graphs (DAGs). Unlike sequential agent chains or simple parallel execution, graphs provide precise control over dependencies, concurrency, and failure handling.</p>
+
+            <div class="alert">
+                <strong>Key Features:</strong> Dynamic indegree scheduling, configurable concurrency limits, three failure strategies (fail_fast, allow_independent, always_run), per-node retry policies, soft-fail mode, cleanup nodes, and built-in visualization utilities.
+            </div>
+
+            <h2>Basic Usage</h2>
+
+            <h3>Simple Linear Pipeline</h3>
+            <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> (
+    GraphRunner, GraphConfig, GraphNode,
+    GraphNodeStartEvent, GraphNodeCompleteEvent, GraphCompleteEvent
+)
+
+<span class="comment"># Configure the graph</span>
+config = GraphConfig(
+    graph_id=<span class="string">"data_pipeline"</span>,
+    max_concurrency=4,
+    failure_strategy=<span class="string">"fail_fast"</span>
+)
+
+graph = GraphRunner(config, context)
+
+<span class="comment"># Add nodes with dependencies</span>
+graph.add_node(GraphNode(<span class="string">"fetch"</span>, fetch_agent))
+graph.add_node(GraphNode(<span class="string">"validate"</span>, validate_agent), [<span class="string">"fetch"</span>])
+graph.add_node(GraphNode(<span class="string">"process"</span>, process_agent), [<span class="string">"validate"</span>])
+graph.add_node(GraphNode(<span class="string">"analyze"</span>, analyze_agent), [<span class="string">"process"</span>])
+
+<span class="comment"># Execute with streaming events</span>
+<span class="keyword">async for</span> event <span class="keyword">in</span> graph.run_stream():
+    <span class="keyword">if</span> <span class="function">isinstance</span>(event, GraphNodeStartEvent):
+        <span class="function">print</span>(<span class="string">f"Starting {event.node_id}..."</span>)
+    <span class="keyword">elif</span> <span class="function">isinstance</span>(event, GraphNodeCompleteEvent):
+        <span class="function">print</span>(<span class="string">f"{event.node_id}: {event.status.value}"</span>)
+    <span class="keyword">elif</span> <span class="function">isinstance</span>(event, GraphCompleteEvent):
+        <span class="function">print</span>(<span class="string">f"\nGraph {event.status}"</span>)
+        <span class="function">print</span>(<span class="string">f"Stats: {event.stats}"</span>)</code></pre>
+
+            <h3>Batch Execution</h3>
+            <pre><code><span class="comment"># Execute and get final statuses</span>
+statuses = graph.run()  <span class="comment"># dict[str, GraphNodeStatus]</span>
+
+<span class="keyword">for</span> node_id, status <span class="keyword">in</span> statuses.items():
+    <span class="function">print</span>(<span class="string">f"{node_id}: {status.value}"</span>)</code></pre>
+
+            <h2>Graph Configuration</h2>
+
+            <h3>GraphConfig Parameters</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Parameter</th>
+                        <th>Type</th>
+                        <th>Default</th>
+                        <th>Description</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>graph_id</code></td>
+                        <td>str</td>
+                        <td>required</td>
+                        <td>Unique identifier for this graph</td>
+                    </tr>
+                    <tr>
+                        <td><code>max_concurrency</code></td>
+                        <td>int</td>
+                        <td>8</td>
+                        <td>Maximum nodes executing in parallel</td>
+                    </tr>
+                    <tr>
+                        <td><code>failure_strategy</code></td>
+                        <td>str</td>
+                        <td>"fail_fast"</td>
+                        <td>"fail_fast", "allow_independent", or "always_run"</td>
+                    </tr>
+                    <tr>
+                        <td><code>persist_state</code></td>
+                        <td>bool</td>
+                        <td>False</td>
+                        <td>Write final graph state summary to context</td>
+                    </tr>
+                    <tr>
+                        <td><code>state_context_key</code></td>
+                        <td>str | None</td>
+                        <td>None</td>
+                        <td>Custom context key for state (default: "graph:{graph_id}:state")</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h2>Node Configuration</h2>
+
+            <h3>GraphNode Parameters</h3>
+
+            <pre><code>GraphNode(
+    id=<span class="string">"node_name"</span>,                   <span class="comment"># Unique node identifier</span>
+    executable=agent_or_callable,     <span class="comment"># AgentRunner | LogicRunner | Callable</span>
+    output_key=<span class="keyword">None</span>,                    <span class="comment"># Context key to store output</span>
+    output_selector=<span class="keyword">None</span>,               <span class="comment"># Function to extract output from result</span>
+    retry_config=<span class="keyword">None</span>,                 <span class="comment"># Node-level RetryConfig override</span>
+    failure_mode=<span class="string">"fail"</span>,                <span class="comment"># "fail" | "soft_fail"</span>
+    run_on_failure=<span class="keyword">False</span>               <span class="comment"># Run even if upstream nodes failed</span>
+)</code></pre>
+
+            <h3>Executable Types</h3>
+
+            <h4>AgentRunner Nodes</h4>
+            <pre><code><span class="comment"># Standard agent execution</span>
+node = GraphNode(<span class="string">"fetch_data"</span>, AgentRunner(fetch_agent))</code></pre>
+
+            <h4>LogicRunner Nodes</h4>
+            <pre><code><span class="comment"># Multi-step logic flow as a node</span>
+logic = LogicRunner(agent, context, patterns, logic_config)
+node = GraphNode(<span class="string">"validation_loop"</span>, logic)</code></pre>
+
+            <h4>Custom Callable Nodes</h4>
+            <pre><code><span class="comment"># Async generator yielding events</span>
+<span class="keyword">async def</span> <span class="function">merge_results</span>(ctx: ContextManager) -> AsyncIterator[BaseEvent]:
+    data1 = ctx.get(<span class="string">"branch1_output"</span>)
+    data2 = ctx.get(<span class="string">"branch2_output"</span>)
+    merged = <span class="string">f"{data1}\n{data2}"</span>
+    ctx.set(<span class="string">"merged_output"</span>, merged)
+    <span class="keyword">yield</span> StatusEvent(AgentStatus.OK, <span class="string">"Results merged"</span>)
+
+node = GraphNode(<span class="string">"merge"</span>, merge_results)
+
+<span class="comment"># Simple async function (no events)</span>
+<span class="keyword">async def</span> <span class="function">simple_transform</span>(ctx: ContextManager) -> str:
+    data = ctx.get(<span class="string">"input"</span>)
+    <span class="keyword">return</span> data.upper()
+
+node = GraphNode(
+    <span class="string">"transform"</span>,
+    simple_transform,
+    output_key=<span class="string">"transformed"</span>  <span class="comment"># Return value stored here</span>
+)</code></pre>
+
+            <h3>Output Capture</h3>
+
+            <pre><code><span class="comment"># Capture agent response in context</span>
+node = GraphNode(
+    <span class="string">"analyzer"</span>,
+    AgentRunner(analysis_agent),
+    output_key=<span class="string">"analysis_result"</span>,
+    output_selector=<span class="keyword">lambda</span> r: r.segments.response
+)
+
+<span class="comment"># Later nodes can access the output</span>
+<span class="keyword">async def</span> <span class="function">use_analysis</span>(ctx: ContextManager):
+    analysis = ctx.get(<span class="string">"analysis_result"</span>)
+    <span class="function">print</span>(<span class="string">f"Previous analysis: {analysis}"</span>)</code></pre>
+
+            <h2>Failure Strategies</h2>
+
+            <p>Control how the graph handles node failures with three strategies:</p>
+
+            <div class="strategy-box">
+                <h4>fail_fast (Default)</h4>
+                <p>Stop scheduling new nodes immediately when any node fails. Running nodes complete, but no new nodes start except those with <code>run_on_failure=True</code>.</p>
+                <p><strong>Use when:</strong> Any failure invalidates the entire workflow and you want to stop as soon as possible.</p>
+                <pre><code>config = GraphConfig(
+    graph_id=<span class="string">"pipeline"</span>,
+    failure_strategy=<span class="string">"fail_fast"</span>
+)</code></pre>
+            </div>
+
+            <div class="strategy-box">
+                <h4>allow_independent</h4>
+                <p>Skip nodes that have failed ancestors, but continue executing independent branches. Nodes are only skipped if they transitively depend on a failed node.</p>
+                <p><strong>Use when:</strong> You have parallel branches and want successful branches to complete even if others fail.</p>
+                <pre><code>config = GraphConfig(
+    graph_id=<span class="string">"pipeline"</span>,
+    failure_strategy=<span class="string">"allow_independent"</span>
+)
+
+<span class="comment"># Example: If branch1 fails, branch2 still runs</span>
+graph.add_node(GraphNode(<span class="string">"root"</span>, root_agent))
+graph.add_node(GraphNode(<span class="string">"branch1"</span>, agent1), [<span class="string">"root"</span>])
+graph.add_node(GraphNode(<span class="string">"branch2"</span>, agent2), [<span class="string">"root"</span>])
+graph.add_node(GraphNode(<span class="string">"merge1"</span>, merge_agent), [<span class="string">"branch1"</span>])  <span class="comment"># Skipped if branch1 fails</span>
+graph.add_node(GraphNode(<span class="string">"merge2"</span>, merge_agent), [<span class="string">"branch2"</span>])  <span class="comment"># Runs if branch2 succeeds</span></code></pre>
+            </div>
+
+            <div class="strategy-box">
+                <h4>always_run</h4>
+                <p>Run all nodes regardless of failures. The graph continues executing until all reachable nodes complete.</p>
+                <p><strong>Use when:</strong> You want maximum coverage and need to see results from all nodes, even if some fail.</p>
+                <pre><code>config = GraphConfig(
+    graph_id=<span class="string">"analysis"</span>,
+    failure_strategy=<span class="string">"always_run"</span>
+)</code></pre>
+            </div>
+
+            <h2>Advanced Patterns</h2>
+
+            <h3>Diamond DAG (Parallel + Merge)</h3>
+            <pre><code><span class="comment"># Split-process-merge pattern</span>
+graph.add_node(GraphNode(<span class="string">"fetch"</span>, fetch_agent))
+
+<span class="comment"># Parallel processing branches</span>
+graph.add_node(GraphNode(<span class="string">"process_a"</span>, agent_a), [<span class="string">"fetch"</span>])
+graph.add_node(GraphNode(<span class="string">"process_b"</span>, agent_b), [<span class="string">"fetch"</span>])
+
+<span class="comment"># Merge results (waits for both branches)</span>
+graph.add_node(
+    GraphNode(<span class="string">"merge"</span>, merge_agent),
+    [<span class="string">"process_a"</span>, <span class="string">"process_b"</span>]
+)</code></pre>
+
+            <h3>Cleanup Nodes</h3>
+            <pre><code><span class="comment"># Node that runs even on failure (e.g., cleanup, logging)</span>
+cleanup_node = GraphNode(
+    <span class="string">"cleanup"</span>,
+    cleanup_agent,
+    run_on_failure=<span class="keyword">True</span>  <span class="comment"># Executes regardless of upstream status</span>
+)
+
+graph.add_node(cleanup_node, [<span class="string">"process"</span>])</code></pre>
+
+            <h3>Soft-Fail Nodes</h3>
+            <pre><code><span class="comment"># Node that doesn't fail the graph on error</span>
+optional_node = GraphNode(
+    <span class="string">"optional_enrichment"</span>,
+    enrichment_agent,
+    failure_mode=<span class="string">"soft_fail"</span>  <span class="comment"># Errors logged but treated as success</span>
+)
+
+graph.add_node(optional_node, [<span class="string">"fetch"</span>])
+graph.add_node(GraphNode(<span class="string">"continue"</span>, next_agent), [<span class="string">"optional_enrichment"</span>])</code></pre>
+
+            <h3>Per-Node Retry</h3>
+            <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> RetryConfig
+
+<span class="comment"># Retry critical nodes automatically</span>
+critical_node = GraphNode(
+    <span class="string">"api_call"</span>,
+    api_agent,
+    retry_config=RetryConfig(
+        max_attempts=3,
+        base_delay=2.0,
+        backoff=<span class="string">"exponential"</span>,
+        retry_on=(TimeoutError, ConnectionError)
+    )
+)
+
+graph.add_node(critical_node)</code></pre>
+
+            <h3>Conditional Branches</h3>
+            <pre><code><span class="comment"># Use custom callables for branching logic</span>
+<span class="keyword">async def</span> <span class="function">route_based_on_input</span>(ctx: ContextManager):
+    input_type = ctx.get(<span class="string">"input_type"</span>)
+
+    <span class="keyword">if</span> input_type == <span class="string">"text"</span>:
+        ctx.set(<span class="string">"route"</span>, <span class="string">"text_branch"</span>)
+    <span class="keyword">else</span>:
+        ctx.set(<span class="string">"route"</span>, <span class="string">"data_branch"</span>)
+
+    <span class="keyword">yield</span> StatusEvent(AgentStatus.OK, <span class="string">f"Routed to {input_type}"</span>)
+
+graph.add_node(GraphNode(<span class="string">"router"</span>, route_based_on_input))
+graph.add_node(GraphNode(<span class="string">"text_processor"</span>, text_agent), [<span class="string">"router"</span>])
+graph.add_node(GraphNode(<span class="string">"data_processor"</span>, data_agent), [<span class="string">"router"</span>])</code></pre>
+
+            <h2>Graph Visualization</h2>
+
+            <p>Export graph structure for documentation and debugging using built-in visualization utilities.</p>
+
+            <h3>Mermaid Format</h3>
+            <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> to_mermaid
+
+<span class="comment"># Basic structure</span>
+mermaid = to_mermaid(graph)
+<span class="function">print</span>(mermaid)
+<span class="comment"># Output:</span>
+<span class="comment"># flowchart TD</span>
+<span class="comment">#     fetch[fetch]</span>
+<span class="comment">#     process[process]</span>
+<span class="comment">#     analyze[analyze]</span>
+<span class="comment">#     fetch --> process</span>
+<span class="comment">#     process --> analyze</span>
+
+<span class="comment"># With metadata (node types, flags, output keys)</span>
+mermaid_detailed = to_mermaid(graph, include_metadata=<span class="keyword">True</span>)
+<span class="function">print</span>(mermaid_detailed)
+<span class="comment"># Output:</span>
+<span class="comment"># flowchart TD</span>
+<span class="comment">#     fetch[fetch | AgentRunner | →fetched_data]</span>
+<span class="comment">#     cleanup[cleanup | AgentRunner | cleanup]</span>
+<span class="comment">#     fetch --> cleanup</span></code></pre>
+
+            <h3>Graphviz DOT Format</h3>
+            <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> to_dot
+
+<span class="comment"># Export to DOT</span>
+dot = to_dot(graph, include_metadata=<span class="keyword">True</span>)
+
+<span class="comment"># Save to file</span>
+<span class="keyword">with</span> <span class="function">open</span>(<span class="string">"graph.dot"</span>, <span class="string">"w"</span>) <span class="keyword">as</span> f:
+    f.write(dot)
+
+<span class="comment"># Render with Graphviz:</span>
+<span class="comment"># dot -Tpng graph.dot -o graph.png</span>
+<span class="comment"># dot -Tsvg graph.dot -o graph.svg</span></code></pre>
+
+            <div class="alert">
+                <strong>Visualization Notes:</strong> The visualization utilities are read-only, stateless, and have zero effect on graph execution. They're pure functions that only examine graph structure.
+            </div>
+
+            <h2>State Persistence</h2>
+
+            <pre><code><span class="comment"># Save graph execution state to context</span>
+config = GraphConfig(
+    graph_id=<span class="string">"pipeline"</span>,
+    persist_state=<span class="keyword">True</span>,
+    state_context_key=<span class="string">"pipeline:final_state"</span>  <span class="comment"># Optional custom key</span>
+)
+
+graph = GraphRunner(config, context)
+
+<span class="comment"># After execution, state is saved as JSON</span>
+state = context.get(<span class="string">"pipeline:final_state"</span>)
+<span class="comment"># {</span>
+<span class="comment">#   "graph_id": "pipeline",</span>
+<span class="comment">#   "status": "success",</span>
+<span class="comment">#   "stats": {"completed": 4, "failed": 0, "skipped": 0, "pending": 0},</span>
+<span class="comment">#   "node_statuses": {"fetch": "completed", "process": "completed", ...},</span>
+<span class="comment">#   "errors": {}</span>
+<span class="comment"># }</span></code></pre>
+
+            <h2>Event Handling</h2>
+
+            <p>GraphRunner emits 4 graph-specific events plus all underlying agent/tool/pattern events:</p>
+
+            <pre><code><span class="keyword">async for</span> event <span class="keyword">in</span> graph.run_stream():
+    <span class="keyword">match</span> event.type:
+        <span class="keyword">case</span> <span class="string">"graph_start"</span>:
+            <span class="function">print</span>(<span class="string">f"Graph started: {event.graph_id} ({event.total_nodes} nodes)"</span>)
+
+        <span class="keyword">case</span> <span class="string">"graph_node_start"</span>:
+            <span class="function">print</span>(<span class="string">f"Node {event.node_id} starting (parents: {event.parents})"</span>)
+
+        <span class="keyword">case</span> <span class="string">"graph_node_complete"</span>:
+            <span class="keyword">if</span> event.status == GraphNodeStatus.COMPLETED:
+                <span class="function">print</span>(<span class="string">f"✓ {event.node_id} completed"</span>)
+            <span class="keyword">elif</span> event.status == GraphNodeStatus.FAILED:
+                <span class="function">print</span>(<span class="string">f"✗ {event.node_id} failed: {event.error_message}"</span>)
+            <span class="keyword">elif</span> event.status == GraphNodeStatus.SKIPPED:
+                <span class="function">print</span>(<span class="string">f"○ {event.node_id} skipped"</span>)
+
+        <span class="keyword">case</span> <span class="string">"graph_complete"</span>:
+            <span class="function">print</span>(<span class="string">f"\nGraph finished: {event.status}"</span>)
+            <span class="function">print</span>(<span class="string">f"Completed: {event.stats['completed']}"</span>)
+            <span class="function">print</span>(<span class="string">f"Failed: {event.stats['failed']}"</span>)
+            <span class="function">print</span>(<span class="string">f"Skipped: {event.stats['skipped']}"</span>)
+
+        <span class="keyword">case</span> <span class="string">"llm_chunk"</span> | <span class="string">"tool_start"</span> | <span class="string">"tool_end"</span>:
+            <span class="comment"># Handle underlying events from nodes</span>
+            <span class="keyword">pass</span></code></pre>
+
+            <h2>Concurrency Control</h2>
+
+            <p>GraphRunner uses dynamic indegree scheduling with configurable concurrency:</p>
+
+            <pre><code><span class="comment"># Limit parallel execution</span>
+config = GraphConfig(
+    graph_id=<span class="string">"pipeline"</span>,
+    max_concurrency=2  <span class="comment"># Only 2 nodes run at a time</span>
+)
+
+<span class="comment"># Even with many ready nodes, max 2 execute in parallel</span>
+graph.add_node(GraphNode(<span class="string">"root"</span>, root_agent))
+graph.add_node(GraphNode(<span class="string">"a"</span>, agent_a), [<span class="string">"root"</span>])
+graph.add_node(GraphNode(<span class="string">"b"</span>, agent_b), [<span class="string">"root"</span>])
+graph.add_node(GraphNode(<span class="string">"c"</span>, agent_c), [<span class="string">"root"</span>])
+graph.add_node(GraphNode(<span class="string">"d"</span>, agent_d), [<span class="string">"root"</span>])
+
+<span class="comment"># After 'root' completes, only 2 of (a,b,c,d) run concurrently</span></code></pre>
+
+            <h2>Cycle Detection</h2>
+
+            <p>GraphRunner automatically detects cycles during graph construction:</p>
+
+            <pre><code>graph.add_node(GraphNode(<span class="string">"a"</span>, agent_a))
+graph.add_node(GraphNode(<span class="string">"b"</span>, agent_b), [<span class="string">"a"</span>])
+graph.add_node(GraphNode(<span class="string">"c"</span>, agent_c), [<span class="string">"b"</span>])
+
+<span class="keyword">try</span>:
+    graph.add_node(GraphNode(<span class="string">"a"</span>, agent_a), [<span class="string">"c"</span>])  <span class="comment"># Creates cycle!</span>
+<span class="keyword">except</span> ValueError <span class="keyword">as</span> e:
+    <span class="function">print</span>(e)  <span class="comment"># "Adding node 'a' would create a cycle..."</span></code></pre>
+
+            <div class="alert">
+                <strong>Note:</strong> For iterative loops, use LogicRunner as a node rather than creating cycles in the graph.
+            </div>
+
+            <h2>Best Practices</h2>
+
+            <ul>
+                <li><strong>Design for concurrency:</strong> Make nodes independent where possible to maximize parallelism</li>
+                <li><strong>Use output_key:</strong> Explicitly capture important outputs in context for downstream nodes</li>
+                <li><strong>Choose the right failure strategy:</strong> fail_fast for strict pipelines, allow_independent for parallel branches</li>
+                <li><strong>Add cleanup nodes:</strong> Use run_on_failure=True for logging, notifications, and resource cleanup</li>
+                <li><strong>Retry critical nodes:</strong> Add retry_config to nodes that call external APIs or resources</li>
+                <li><strong>Visualize before running:</strong> Use to_mermaid() during development to verify structure</li>
+                <li><strong>Monitor with events:</strong> Handle graph events to track progress and detect issues early</li>
+                <li><strong>Persist state for analysis:</strong> Enable persist_state to debug failures and track metrics</li>
+            </ul>
+
+            <h2>Performance Considerations</h2>
+
+            <ul>
+                <li><strong>Max concurrency:</strong> Set based on your resources and rate limits (default: 8)</li>
+                <li><strong>Node granularity:</strong> Break large tasks into nodes to enable better parallelism</li>
+                <li><strong>Event overhead:</strong> Graph events add minimal overhead; all node events are forwarded</li>
+                <li><strong>Memory usage:</strong> State is tracked in memory; large graphs may need state persistence</li>
+                <li><strong>Rate limiting:</strong> Pass a RateLimiter to GraphRunner to apply across all nodes</li>
+            </ul>
+
+            <h2>Common Patterns</h2>
+
+            <h3>Fan-Out / Fan-In</h3>
+            <pre><code><span class="comment"># Process multiple items in parallel, then merge</span>
+graph.add_node(GraphNode(<span class="string">"split"</span>, splitter))
+<span class="keyword">for</span> i <span class="keyword">in</span> <span class="function">range</span>(5):
+    graph.add_node(GraphNode(<span class="string">f"process_{i}"</span>, processor), [<span class="string">"split"</span>])
+graph.add_node(
+    GraphNode(<span class="string">"merge"</span>, merger),
+    [<span class="string">f"process_{i}"</span> <span class="keyword">for</span> i <span class="keyword">in</span> <span class="function">range</span>(5)]
+)</code></pre>
+
+            <h3>Multi-Stage Pipeline</h3>
+            <pre><code><span class="comment"># Classic data pipeline with validation at each stage</span>
+stages = [<span class="string">"extract"</span>, <span class="string">"transform"</span>, <span class="string">"load"</span>]
+<span class="keyword">for</span> i, stage <span class="keyword">in</span> <span class="function">enumerate</span>(stages):
+    graph.add_node(GraphNode(stage, agents[stage]))
+    <span class="keyword">if</span> i > 0:
+        graph.add_node(GraphNode(stage), [stages[i-1]])</code></pre>
+
+            <h3>Try-Multiple / First-Success</h3>
+            <pre><code><span class="comment"># Try multiple approaches, use first that succeeds</span>
+graph.add_node(GraphNode(<span class="string">"approach_a"</span>, agent_a, failure_mode=<span class="string">"soft_fail"</span>))
+graph.add_node(GraphNode(<span class="string">"approach_b"</span>, agent_b, failure_mode=<span class="string">"soft_fail"</span>))
+graph.add_node(GraphNode(<span class="string">"approach_c"</span>, agent_c, failure_mode=<span class="string">"soft_fail"</span>))
+
+<span class="keyword">async def</span> <span class="function">pick_best</span>(ctx: ContextManager):
+    <span class="keyword">for</span> key <span class="keyword">in</span> [<span class="string">"approach_a"</span>, <span class="string">"approach_b"</span>, <span class="string">"approach_c"</span>]:
+        result = ctx.get(key)
+        <span class="keyword">if</span> result:
+            ctx.set(<span class="string">"final_result"</span>, result)
+            <span class="keyword">break</span>
+
+graph.add_node(
+    GraphNode(<span class="string">"selector"</span>, pick_best),
+    [<span class="string">"approach_a"</span>, <span class="string">"approach_b"</span>, <span class="string">"approach_c"</span>]
+)</code></pre>
+
+            <h2>Next Steps</h2>
+            <ul>
+                <li><a href="multi-agent.html">Multi-Agent Patterns</a> - Compare with chain, supervisor, and parallel patterns</li>
+                <li><a href="logic-flows.html">Logic Flows</a> - Use LogicRunner within graph nodes</li>
+                <li><a href="events.html">Events</a> - Handle graph and node events</li>
+                <li><a href="resilience.html">Resilience</a> - Configure retry and rate limiting</li>
+                <li><a href="api-reference.html">API Reference</a> - Complete GraphRunner API</li>
+            </ul>
+        </main>
+    </div>
+</body>
+</html>

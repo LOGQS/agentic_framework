@@ -68,6 +68,7 @@
                     <a href="tools.html" class="nav-link">Tools</a>
                     <a href="patterns.html" class="nav-link">Patterns</a>
                     <a href="logic-flows.html" class="nav-link">Logic Flows</a>
+                    <a href="graph-orchestration.html" class="nav-link">Graph Orchestration</a>
                 </div>
                 <div class="nav-section">
                     <div class="nav-section-title">Advanced</div>
@@ -402,6 +403,148 @@ stop_on_error(runner, context, patterns)</code></pre>
 <span class="keyword">async for</span> event <span class="keyword">in</span> debate.converge(<span class="string">"topic"</span>):
     <span class="keyword">pass</span></code></pre>
 
+            <h2>Graph Module</h2>
+            <p>DAG-based workflow orchestration with dynamic scheduling and failure handling.</p>
+
+            <h3>GraphRunner</h3>
+            <p>Executes a directed acyclic graph of nodes with concurrency control.</p>
+            <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> GraphRunner, GraphConfig, GraphNode
+
+config = GraphConfig(
+    graph_id=<span class="string">"data_pipeline"</span>,
+    max_concurrency=4,
+    failure_strategy=<span class="string">"allow_independent"</span>,  <span class="comment"># or "fail_fast", "always_run"</span>
+    persist_state=<span class="keyword">True</span>,
+    state_context_key=<span class="string">"graph:pipeline:state"</span>
+)
+
+graph = GraphRunner(config, context, rate_limiter)
+
+<span class="comment"># Add nodes with dependencies</span>
+graph.add_node(GraphNode(<span class="string">"fetch"</span>, agent_runner))
+graph.add_node(GraphNode(<span class="string">"process"</span>, agent_runner), [<span class="string">"fetch"</span>])
+
+<span class="comment"># Streaming execution</span>
+<span class="keyword">async for</span> event <span class="keyword">in</span> graph.run_stream():
+    <span class="keyword">if</span> <span class="function">isinstance</span>(event, GraphCompleteEvent):
+        <span class="function">print</span>(<span class="string">f"Graph {event.status}: {event.stats}"</span>)
+
+<span class="comment"># Batch execution</span>
+statuses = graph.run()  <span class="comment"># dict[str, GraphNodeStatus]</span></code></pre>
+
+            <h3>GraphConfig</h3>
+            <p>Configuration for graph execution.</p>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Field</th>
+                        <th>Type</th>
+                        <th>Default</th>
+                        <th>Description</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>graph_id</code></td>
+                        <td>str</td>
+                        <td>required</td>
+                        <td>Unique graph identifier</td>
+                    </tr>
+                    <tr>
+                        <td><code>max_concurrency</code></td>
+                        <td>int</td>
+                        <td>8</td>
+                        <td>Maximum parallel nodes</td>
+                    </tr>
+                    <tr>
+                        <td><code>failure_strategy</code></td>
+                        <td>str</td>
+                        <td>"fail_fast"</td>
+                        <td>How to handle failures: "fail_fast", "allow_independent", "always_run"</td>
+                    </tr>
+                    <tr>
+                        <td><code>persist_state</code></td>
+                        <td>bool</td>
+                        <td>False</td>
+                        <td>Write final state to context</td>
+                    </tr>
+                    <tr>
+                        <td><code>state_context_key</code></td>
+                        <td>str | None</td>
+                        <td>None</td>
+                        <td>Custom key for state (default: "graph:{graph_id}:state")</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3>GraphNode</h3>
+            <p>Executable node in the graph. Supports AgentRunner, LogicRunner, or custom async callables.</p>
+            <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> GraphNode, RetryConfig
+
+<span class="comment"># Agent node with output capture</span>
+node1 = GraphNode(
+    id=<span class="string">"fetch_data"</span>,
+    executable=agent_runner,
+    output_key=<span class="string">"fetched_data"</span>,          <span class="comment"># Store result in context</span>
+    output_selector=<span class="keyword">lambda</span> r: r.segments.response,
+    retry_config=RetryConfig(max_attempts=3),
+    failure_mode=<span class="string">"fail"</span>,                 <span class="comment"># or "soft_fail"</span>
+    run_on_failure=<span class="keyword">False</span>                  <span class="comment"># Run even if upstream fails</span>
+)
+
+<span class="comment"># Logic flow node</span>
+node2 = GraphNode(<span class="string">"validate"</span>, logic_runner)
+
+<span class="comment"># Custom callable node</span>
+<span class="keyword">async def</span> <span class="function">merge_results</span>(ctx: ContextManager) -> AsyncIterator[BaseEvent]:
+    data1 = ctx.get(<span class="string">"output1"</span>)
+    data2 = ctx.get(<span class="string">"output2"</span>)
+    ctx.set(<span class="string">"merged"</span>, <span class="string">f"{data1}\n{data2}"</span>)
+    <span class="keyword">yield</span> StatusEvent(AgentStatus.OK, <span class="string">"Merged"</span>)
+
+node3 = GraphNode(<span class="string">"merge"</span>, merge_results)
+
+<span class="comment"># Cleanup node (always runs)</span>
+cleanup = GraphNode(
+    <span class="string">"cleanup"</span>,
+    cleanup_agent,
+    run_on_failure=<span class="keyword">True</span>  <span class="comment"># Runs even on upstream failure</span>
+)</code></pre>
+
+            <h3>GraphNodeStatus</h3>
+            <p>Node execution status enum.</p>
+            <ul>
+                <li><code>PENDING</code> - Not yet started</li>
+                <li><code>RUNNING</code> - Currently executing</li>
+                <li><code>COMPLETED</code> - Finished successfully</li>
+                <li><code>FAILED</code> - Execution failed</li>
+                <li><code>SKIPPED</code> - Skipped due to failure strategy</li>
+            </ul>
+
+            <h3>Failure Strategies</h3>
+            <p>Control how the graph handles node failures:</p>
+            <ul>
+                <li><strong>fail_fast</strong> - Stop scheduling new nodes immediately on any failure. Nodes with <code>run_on_failure=True</code> still execute.</li>
+                <li><strong>allow_independent</strong> - Skip nodes that have failed ancestors, but continue scheduling independent branches.</li>
+                <li><strong>always_run</strong> - Run all nodes regardless of failures (unless they depend on skipped nodes).</li>
+            </ul>
+
+            <h3>Graph Visualization</h3>
+            <p>Export graph structure for documentation and debugging.</p>
+            <pre><code><span class="keyword">from</span> agentic <span class="keyword">import</span> to_mermaid, to_dot
+
+<span class="comment"># Export to Mermaid format</span>
+mermaid = to_mermaid(graph, include_metadata=<span class="keyword">True</span>)
+<span class="function">print</span>(mermaid)
+<span class="comment"># flowchart TD</span>
+<span class="comment">#     fetch[fetch]</span>
+<span class="comment">#     process[process]</span>
+<span class="comment">#     fetch --> process</span>
+
+<span class="comment"># Export to Graphviz DOT format</span>
+dot = to_dot(graph, include_metadata=<span class="keyword">True</span>)
+<span class="comment"># Render: dot -Tpng graph.dot -o graph.png</span></code></pre>
+
             <h2>Events Module</h2>
             <p>Event system for streaming agent execution.</p>
 
@@ -424,6 +567,10 @@ stop_on_error(runner, context, patterns)</code></pre>
                 <li><code>StepCompleteEvent</code> - Step complete</li>
                 <li><code>RetryEvent</code> - Retry occurring</li>
                 <li><code>RateLimitEvent</code> - Rate limit acquired</li>
+                <li><code>GraphStartEvent</code> - Graph execution begins</li>
+                <li><code>GraphNodeStartEvent</code> - Graph node starts</li>
+                <li><code>GraphNodeCompleteEvent</code> - Graph node completes</li>
+                <li><code>GraphCompleteEvent</code> - Graph execution completes</li>
             </ul>
 
             <h2>Resilience Module</h2>

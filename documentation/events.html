@@ -71,6 +71,7 @@
                     <a href="tools.html" class="nav-link">Tools</a>
                     <a href="patterns.html" class="nav-link">Patterns</a>
                     <a href="logic-flows.html" class="nav-link">Logic Flows</a>
+                    <a href="graph-orchestration.html" class="nav-link">Graph Orchestration</a>
                 </div>
                 <div class="nav-section">
                     <div class="nav-section-title">Advanced</div>
@@ -91,7 +92,7 @@
             <p class="subtitle">Real-time event streaming for agent execution monitoring</p>
 
             <h2>Overview</h2>
-            <p>Aegeantic provides a comprehensive event system that streams real-time updates during agent execution. Events enable reactive UIs, monitoring, debugging, and custom workflows built on agent execution.</p>
+            <p>Aegeantic provides a comprehensive event system with 21 event types that stream real-time updates during agent execution, including graph orchestration. Events enable reactive UIs, monitoring, debugging, and custom workflows built on agent execution.</p>
 
             <div class="alert">
                 <strong>Streaming First:</strong> All operations in Aegeantic emit events through <code>AsyncIterator</code> interfaces, making it easy to build responsive, real-time applications.
@@ -268,6 +269,51 @@ event.key = <span class="string">"conversation_history"</span>
 event.current_value = 15000.0
 event.threshold = 10000.0
 event.recommended_action = <span class="string">"Consider summarization"</span></code></pre>
+            </div>
+
+            <div class="event-card">
+                <h4>GraphStartEvent</h4>
+                <p>Emitted when graph execution begins.</p>
+                <pre><code>event.type = <span class="string">"graph_start"</span>
+event.graph_id = <span class="string">"data_pipeline"</span>
+event.total_nodes = 5
+event.timestamp = 1234567890.123</code></pre>
+            </div>
+
+            <div class="event-card">
+                <h4>GraphNodeStartEvent</h4>
+                <p>Emitted when a graph node begins execution.</p>
+                <pre><code>event.type = <span class="string">"graph_node_start"</span>
+event.graph_id = <span class="string">"data_pipeline"</span>
+event.node_id = <span class="string">"fetch_data"</span>
+event.parents = [<span class="string">"validate"</span>]  <span class="comment"># List of parent node IDs</span>
+event.timestamp = 1234567890.123</code></pre>
+            </div>
+
+            <div class="event-card">
+                <h4>GraphNodeCompleteEvent</h4>
+                <p>Emitted when a graph node completes (success, failure, or skipped).</p>
+                <pre><code>event.type = <span class="string">"graph_node_complete"</span>
+event.graph_id = <span class="string">"data_pipeline"</span>
+event.node_id = <span class="string">"fetch_data"</span>
+event.status = GraphNodeStatus.COMPLETED  <span class="comment"># COMPLETED | FAILED | SKIPPED</span>
+event.error_message = <span class="keyword">None</span>  <span class="comment"># Set if status is FAILED</span>
+event.timestamp = 1234567890.123</code></pre>
+            </div>
+
+            <div class="event-card">
+                <h4>GraphCompleteEvent</h4>
+                <p>Emitted when entire graph execution completes.</p>
+                <pre><code>event.type = <span class="string">"graph_complete"</span>
+event.graph_id = <span class="string">"data_pipeline"</span>
+event.status = <span class="string">"success"</span>  <span class="comment"># "success" | "partial_failure" | "failed"</span>
+event.stats = {
+    <span class="string">"completed"</span>: 4,
+    <span class="string">"failed"</span>: 1,
+    <span class="string">"skipped"</span>: 0,
+    <span class="string">"pending"</span>: 0
+}
+event.timestamp = 1234567890.123</code></pre>
             </div>
 
             <h2>Consuming Events</h2>

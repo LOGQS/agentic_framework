@@ -388,6 +388,7 @@
                     <a href="tools.html" class="nav-link">Tools</a>
                     <a href="patterns.html" class="nav-link">Patterns</a>
                     <a href="logic-flows.html" class="nav-link">Logic Flows</a>
+                    <a href="graph-orchestration.html" class="nav-link">Graph Orchestration</a>
                 </div>
 
                 <div class="nav-section">
@@ -415,7 +416,7 @@
             </div>
 
             <h2>Overview</h2>
-            <p>Aegeantic is a comprehensive framework for building stateful, autonomous LLM agents. It provides a complete infrastructure for agent execution, including context management, tool execution, pattern extraction, conditional logic flows, and multi-agent coordination.</p>
+            <p>Aegeantic is a comprehensive framework for building stateful, autonomous LLM agents. It provides a complete infrastructure for agent execution, including context management, tool execution, pattern extraction, conditional logic flows, multi-agent coordination, and DAG-based graph orchestration.</p>
 
             <div class="alert alert-info">
                 <strong>Key Philosophy:</strong> Aegeantic separates agent concerns into discrete, composable systems. Context management, pattern extraction, tool execution, and LLM providers are all independent components that work together through well-defined interfaces.
@@ -463,6 +464,11 @@
                     <h3>Validation</h3>
                     <p>Extensible validation system supporting JSON Schema, custom validators, and built-in simple validator.</p>
                 </div>
+
+                <div class="feature-card">
+                    <h3>Graph Orchestration</h3>
+                    <p>DAG-based workflow execution with dynamic scheduling, failure strategies and visualization utilities.</p>
+                </div>
             </div>
 
             <h2>Architecture Highlights</h2>
@@ -486,6 +492,7 @@
                 <li><strong>Code Analysis:</strong> Multi-step code review agents with tool access to linters, formatters, and test runners</li>
                 <li><strong>Data Processing:</strong> Agents that process datasets through multiple transformations with intermediate context tracking</li>
                 <li><strong>Multi-Agent Systems:</strong> Supervisor agents coordinating specialized worker agents for complex workflows</li>
+                <li><strong>DAG Workflows:</strong> Complex data pipelines with parallel processing, dependency management, and failure handling using GraphRunner</li>
                 <li><strong>Interactive Applications:</strong> Streaming agent responses to build responsive chat interfaces with real-time tool execution feedback</li>
             </ul>
 

@@ -65,6 +65,7 @@
                     <a href="tools.html" class="nav-link">Tools</a>
                     <a href="patterns.html" class="nav-link">Patterns</a>
                     <a href="logic-flows.html" class="nav-link">Logic Flows</a>
+                    <a href="graph-orchestration.html" class="nav-link">Graph Orchestration</a>
                 </div>
                 <div class="nav-section">
                     <div class="nav-section-title">Advanced</div>
@@ -264,7 +265,8 @@ tool = create_tool(
             <h2>Events</h2>
             <p>Everything in Aegeantic flows through events. Events enable streaming, real-time monitoring, and reactive patterns.</p>
 
-            <h3>Event Types</h3>
+            <h3>Core Event Types</h3>
+            <p>The most commonly encountered events during basic agent execution:</p>
             <ul>
                 <li><code>LLMChunkEvent</code> - Individual chunks from LLM</li>
                 <li><code>LLMCompleteEvent</code> - LLM generation complete</li>
@@ -275,6 +277,10 @@ tool = create_tool(
                 <li><code>StatusEvent</code> - Agent status change</li>
                 <li><code>StepCompleteEvent</code> - Agent step complete with final result</li>
             </ul>
+
+            <div class="alert">
+                <strong>Complete Event Reference:</strong> Aegeantic provides 21 total event types including graph orchestration events, retry/rate limiting events, context health events, and more. See the <a href="events.html">Events</a> page for the complete reference.
+            </div>
 
             <h3>Consuming Events</h3>
             <pre><code><span class="keyword">async for</span> event <span class="keyword">in</span> runner.step_stream(user_input):
