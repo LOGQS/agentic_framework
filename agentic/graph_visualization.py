@@ -48,7 +48,7 @@ def to_mermaid(graph: 'GraphRunner', include_metadata: bool = False) -> str:
 
             label = " | ".join(parts)
 
-        lines.append(f"    {node_id}[{label}]")
+        lines.append(f'    {node_id}["{label}"]')
 
     # Generate edges from parent -> child relationships
     for node_id, parents in graph._parents.items():
