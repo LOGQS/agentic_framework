@@ -318,10 +318,88 @@ class ContextHealthEvent(BaseEvent):
         self.step_id = step_id
 
 
+@dataclass(init=False)
+class GraphStartEvent(BaseEvent):
+    """Emitted when graph execution begins."""
+    graph_id: str
+    total_nodes: int
+
+    def __init__(self, graph_id: str, total_nodes: int, timestamp: float = None):
+        self.graph_id = graph_id
+        self.total_nodes = total_nodes
+        self.type = "graph_start"
+        self.timestamp = timestamp or now_timestamp()
+        self.step_id = ""  # Graph-wide, not per agent step
+
+
+@dataclass(init=False)
+class GraphNodeStartEvent(BaseEvent):
+    """Emitted when a graph node begins execution."""
+    graph_id: str
+    node_id: str
+    parents: list[str]
+
+    def __init__(self, graph_id: str, node_id: str, parents: list[str], timestamp: float = None):
+        self.graph_id = graph_id
+        self.node_id = node_id
+        self.parents = parents
+        self.type = "graph_node_start"
+        self.timestamp = timestamp or now_timestamp()
+        self.step_id = ""
+
+
+@dataclass(init=False)
+class GraphNodeCompleteEvent(BaseEvent):
+    """Emitted when a graph node completes (success or failure)."""
+    graph_id: str
+    node_id: str
+    status: Any  # GraphNodeStatus enum
+    error_message: str | None = None
+
+    def __init__(
+        self,
+        graph_id: str,
+        node_id: str,
+        status: Any,
+        error_message: str | None = None,
+        timestamp: float = None
+    ):
+        self.graph_id = graph_id
+        self.node_id = node_id
+        self.status = status
+        self.error_message = error_message
+        self.type = "graph_node_complete"
+        self.timestamp = timestamp or now_timestamp()
+        self.step_id = ""
+
+
+@dataclass(init=False)
+class GraphCompleteEvent(BaseEvent):
+    """Emitted when entire graph execution completes."""
+    graph_id: str
+    status: str  # "success" | "partial_failure" | "failed"
+    stats: dict[str, int]  # {status_name: count}
+
+    def __init__(
+        self,
+        graph_id: str,
+        status: str,
+        stats: dict[str, int],
+        timestamp: float = None
+    ):
+        self.graph_id = graph_id
+        self.status = status
+        self.stats = stats
+        self.type = "graph_complete"
+        self.timestamp = timestamp or now_timestamp()
+        self.step_id = ""
+
+
 AgentEvent = (
     LLMChunkEvent | LLMCompleteEvent | StatusEvent |
     ToolStartEvent | ToolDecisionEvent | ToolOutputEvent | ToolEndEvent | ToolValidationEvent |
     ContextWriteEvent | ErrorEvent |
     PatternStartEvent | PatternContentEvent | PatternEndEvent |
-    StepCompleteEvent | RetryEvent | RateLimitEvent | ContextHealthEvent
+    StepCompleteEvent | RetryEvent | RateLimitEvent | ContextHealthEvent |
+    GraphStartEvent | GraphNodeStartEvent | GraphNodeCompleteEvent | GraphCompleteEvent
 )

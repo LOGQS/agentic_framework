@@ -4,15 +4,15 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aegeantic"
-version = "0.1.0"
-description = "A comprehensive LLM agent framework with streaming support, persistent context, and multi-agent orchestration"
+version = "0.1.1"
+description = "A comprehensive LLM agent framework with streaming support, persistent context, multi-agent orchestration, and DAG-based workflow execution"
 readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"
 authors = [
     {name = "Kuzey Akin", email = "kuzeyakins1@gmail.com"}
 ]
-keywords = ["llm", "agent", "ai", "streaming", "multi-agent", "orchestration"]
+keywords = ["llm", "agent", "ai", "streaming", "multi-agent", "orchestration", "dag", "workflow", "graph"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",

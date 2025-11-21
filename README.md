@@ -5,7 +5,7 @@ A framework for building LLM agents with versioned context, persistent storage, 
 ## Features
 
 - **Streaming-First**: Real-time event streams for LLM generation, pattern detection, and tool execution
-- **17 Event Types**: Complete observability across LLM, tools, patterns, validation, retry, rate limiting, and context health
+- **21 Event Types**: Complete observability across LLM, tools, patterns, validation, retry, rate limiting, context health, and graph orchestration
 - **Structured Logging**: Built-in logger with contextual metadata for debugging and monitoring
 - **Persistent Context**: Versioned key-value store backed by RocksDB with automatic timestamps and iteration tracking
 - **Pattern Extraction**: Regex-based extraction with streaming support, incremental detection, and malformed pattern handling
@@ -14,6 +14,7 @@ A framework for building LLM agents with versioned context, persistent storage, 
 - **Resilience**: Retry logic with exponential backoff and token bucket rate limiting
 - **Tool Verification**: Human-in-the-loop tool approval with timeout handling and rejection tracking
 - **Multi-Agent Patterns**: Chain, Supervisor-Worker, Parallel, and Debate patterns for orchestrating multiple agents
+- **Graph Orchestration**: DAG-based workflow execution with dynamic scheduling, failure strategies, and cycle detection
 - **Flexible Storage**: RocksDB for persistence or in-memory storage for testing and ephemeral use
 - **Flexible Logic Flows**: Conditional loops with pattern-based, regex-based, or context-based conditions
 - **Type-Safe**: Full type hints throughout
@@ -136,7 +137,7 @@ asyncio.run(stream_example())
 agentic/
 ├── core.py         # Enums (ProcessingMode, SegmentType, AgentStatus) & data classes
 ├── validation.py   # Format-agnostic validation system with extensible validators
-├── events.py       # 17 event types (LLM, tools, patterns, retry, rate limit, health)
+├── events.py       # 21 event types (LLM, tools, patterns, retry, rate limit, health, graph)
 ├── storage.py      # RocksDBStorage & InMemoryStorage with automatic path resolution
 ├── context.py      # IterationManager & ContextManager with versioning and history
 ├── patterns.py     # PatternExtractor (batch) & StreamingPatternExtractor (incremental)
@@ -145,6 +146,7 @@ agentic/
 ├── logic.py        # LogicRunner for conditional loops with context health monitoring
 ├── resilience.py   # Retry logic with backoff and token bucket rate limiting
 ├── multi_agent.py  # Multi-agent orchestration patterns (Chain, Supervisor, Parallel, Debate)
+├── graph.py        # GraphRunner for DAG-based workflow orchestration
 └── logging_util.py # Structured logging with contextual metadata for debugging
 ```
 
@@ -204,7 +206,7 @@ agentic/
 - Support for JSON Schema, XML Schema, Protocol Buffers, or custom validators
 
 **Events** (`events.py`):
-17 event types: `LLMChunkEvent`, `LLMCompleteEvent`, `PatternStartEvent`, `PatternContentEvent`, `PatternEndEvent`, `StatusEvent`, `ToolStartEvent`, `ToolDecisionEvent`, `ToolOutputEvent`, `ToolEndEvent`, `ToolValidationEvent`, `ContextWriteEvent`, `ErrorEvent`, `StepCompleteEvent`, `RetryEvent`, `RateLimitEvent`, `ContextHealthEvent`
+21 event types: `LLMChunkEvent`, `LLMCompleteEvent`, `PatternStartEvent`, `PatternContentEvent`, `PatternEndEvent`, `StatusEvent`, `ToolStartEvent`, `ToolDecisionEvent`, `ToolOutputEvent`, `ToolEndEvent`, `ToolValidationEvent`, `ContextWriteEvent`, `ErrorEvent`, `StepCompleteEvent`, `RetryEvent`, `RateLimitEvent`, `ContextHealthEvent`, `GraphStartEvent`, `GraphNodeStartEvent`, `GraphNodeCompleteEvent`, `GraphCompleteEvent`
 
 **Logging** (`logging_util.py`):
 - Structured logger with contextual metadata
@@ -229,6 +231,16 @@ agentic/
 - `ParallelConfig`: Configure merge strategy, templates, and timeout
 - `DebatePattern`: Multi-round debate between agents with consensus detection
 - `DebateConfig`: Configure max rounds, consensus detector, and prompt templates
+
+**Graph** (`graph.py`):
+- `GraphRunner`: DAG-based workflow orchestration with dynamic scheduling and failure handling
+- `GraphNode`: Configurable nodes supporting AgentRunner, LogicRunner, or custom callables
+- `GraphConfig`: Graph execution settings including concurrency limits and failure strategies
+- `GraphNodeStatus`: Node execution states (PENDING, RUNNING, COMPLETED, FAILED, SKIPPED)
+- `GraphStartEvent`, `GraphNodeStartEvent`, `GraphNodeCompleteEvent`, `GraphCompleteEvent`: Graph-level events
+- DFS-based cycle detection, indegree scheduling, retry/rate limiting per node
+- Failure strategies: fail_fast, allow_independent, always_run
+- Optional state persistence to context
 
 ## Advanced Usage
 
@@ -389,6 +401,118 @@ async for item in resilient_stream(
         print(f"Rate limit: {item.tokens_remaining} tokens left")
     else:
         print(item, end="")
+```
+
+### Graph Orchestration
+
+Build complex multi-agent workflows as directed acyclic graphs:
+
+```python
+from agentic import GraphRunner, GraphNode, GraphConfig, GraphNodeStatus
+
+# Create graph with concurrency control
+graph_config = GraphConfig(
+    graph_id="data_pipeline",
+    max_concurrency=4,
+    failure_strategy="allow_independent",  # or "fail_fast", "always_run"
+    persist_state=True
+)
+
+graph = GraphRunner(graph_config, context)
+
+# Add nodes with dependencies
+graph.add_node(GraphNode("fetch_data", AgentRunner(fetch_agent)))
+graph.add_node(GraphNode("validate", AgentRunner(validate_agent)), ["fetch_data"])
+graph.add_node(GraphNode("process", AgentRunner(process_agent)), ["validate"])
+graph.add_node(
+    GraphNode(
+        "analyze",
+        AgentRunner(analyze_agent),
+        output_key="analysis_result",  # Store result in context
+        retry_config=RetryConfig(max_attempts=3)  # Node-level retry
+    ),
+    ["process"]
+)
+
+# Execute graph with streaming events
+async for event in graph.run_stream():
+    if isinstance(event, GraphNodeStartEvent):
+        print(f"Starting node: {event.node_id}")
+    elif isinstance(event, GraphNodeCompleteEvent):
+        print(f"Node {event.node_id} completed with status: {event.status.value}")
+    elif isinstance(event, GraphCompleteEvent):
+        print(f"Graph finished: {event.status}")
+        print(f"Stats: {event.stats}")
+
+# Or batch execution
+final_statuses = graph.run()
+```
+
+### Graph Visualization
+
+Export graph structure for debugging and documentation:
+
+```python
+from agentic import GraphRunner, GraphConfig, GraphNode, to_mermaid, to_dot
+
+# Build your graph
+graph = GraphRunner(GraphConfig(graph_id="pipeline"), context)
+graph.add_node(GraphNode("fetch", fetch_agent))
+graph.add_node(GraphNode("process", process_agent), ["fetch"])
+graph.add_node(GraphNode("analyze", analyze_agent), ["process"])
+
+# Export to Mermaid (for GitHub, documentation)
+mermaid = to_mermaid(graph)
+print(mermaid)
+# Output:
+# flowchart TD
+#     fetch[fetch]
+#     process[process]
+#     analyze[analyze]
+#     fetch --> process
+#     process --> analyze
+
+# Export to Graphviz DOT (for rendering)
+dot = to_dot(graph, include_metadata=True)
+# Save and render: dot -Tpng graph.dot -o graph.png
+
+# Include metadata (node types, flags, output keys)
+mermaid_detailed = to_mermaid(graph, include_metadata=True)
+```
+
+Visualization utilities are:
+- **Read-only**: Zero effect on graph execution
+- **Stateless**: Pure functions, no side effects
+- **Optional**: Only imported when needed
+
+
+Advanced graph features:
+
+```python
+# Cleanup nodes that run even on failure
+graph.add_node(
+    GraphNode(
+        "cleanup",
+        cleanup_agent,
+        run_on_failure=True  # Runs even if upstream failed
+    ),
+    ["analyze"]
+)
+
+# Custom callable nodes
+def merge_results(ctx: ContextManager) -> AsyncIterator[BaseEvent]:
+    data1 = ctx.get("output1")
+    data2 = ctx.get("output2")
+    merged = f"{data1}\n{data2}"
+    ctx.set("merged", merged)
+    yield StatusEvent(AgentStatus.OK, "Merged results")
+
+graph.add_node(GraphNode("merge", merge_results), ["process1", "process2"])
+
+# Parallel branches with synchronized merge
+graph.add_node(GraphNode("branch1", agent1))
+graph.add_node(GraphNode("branch2", agent2))
+graph.add_node(GraphNode("merge", merger_agent), ["branch1", "branch2"])
 ```
 
 ### Multi-Agent Patterns

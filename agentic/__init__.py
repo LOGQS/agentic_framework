@@ -51,7 +51,11 @@ from .events import (
     StepCompleteEvent,
     RetryEvent,
     RateLimitEvent,
-    ContextHealthEvent
+    ContextHealthEvent,
+    GraphStartEvent,
+    GraphNodeStartEvent,
+    GraphNodeCompleteEvent,
+    GraphCompleteEvent
 )
 
 # Storage layer
@@ -130,7 +134,16 @@ from .multi_agent import (
     DebateConfig
 )
 
-__version__ = "0.1.0"
+# Graph orchestration
+from .graph import (
+    GraphNodeStatus,
+    GraphNode,
+    GraphConfig,
+    GraphRunner
+)
+from .graph_visualization import to_mermaid, to_dot
+
+__version__ = "0.1.1"
 
 __all__ = [
     # Core
@@ -176,6 +189,10 @@ __all__ = [
     "RetryEvent",
     "RateLimitEvent",
     "ContextHealthEvent",
+    "GraphStartEvent",
+    "GraphNodeStartEvent",
+    "GraphNodeCompleteEvent",
+    "GraphCompleteEvent",
     # Storage
     "StorageConfig",
     "RocksDBStorage",
@@ -228,4 +245,11 @@ __all__ = [
     "ParallelConfig",
     "DebatePattern",
     "DebateConfig",
+    # Graph
+    "GraphNodeStatus",
+    "GraphNode",
+    "GraphConfig",
+    "GraphRunner",
+    "to_mermaid",
+    "to_dot",
 ]
