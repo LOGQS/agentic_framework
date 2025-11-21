@@ -1337,8 +1337,8 @@ class TestGraphVisualization:
         mermaid = to_mermaid(runner)
 
         assert "flowchart TD" in mermaid
-        assert "A[A]" in mermaid
-        assert "B[B]" in mermaid
+        assert 'A["A"]' in mermaid
+        assert 'B["B"]' in mermaid
         assert "A --> B" in mermaid
 
     def test_mermaid_with_metadata(self, context_manager, agent_runner):

@@ -369,9 +369,9 @@ mermaid = to_mermaid(graph)
 <span class="function">print</span>(mermaid)
 <span class="comment"># Output:</span>
 <span class="comment"># flowchart TD</span>
-<span class="comment">#     fetch[fetch]</span>
-<span class="comment">#     process[process]</span>
-<span class="comment">#     analyze[analyze]</span>
+<span class="comment">#     fetch["fetch"]</span>
+<span class="comment">#     process["process"]</span>
+<span class="comment">#     analyze["analyze"]</span>
 <span class="comment">#     fetch --> process</span>
 <span class="comment">#     process --> analyze</span>
 
@@ -380,8 +380,8 @@ mermaid_detailed = to_mermaid(graph, include_metadata=<span class="keyword">True
 <span class="function">print</span>(mermaid_detailed)
 <span class="comment"># Output:</span>
 <span class="comment"># flowchart TD</span>
-<span class="comment">#     fetch[fetch | AgentRunner | →fetched_data]</span>
-<span class="comment">#     cleanup[cleanup | AgentRunner | cleanup]</span>
+<span class="comment">#     fetch["fetch | AgentRunner | →fetched_data"]</span>
+<span class="comment">#     cleanup["cleanup | AgentRunner | cleanup"]</span>
 <span class="comment">#     fetch --> cleanup</span></code></pre>
 
             <h3>Graphviz DOT Format</h3>

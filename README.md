@@ -466,9 +466,9 @@ mermaid = to_mermaid(graph)
 print(mermaid)
 # Output:
 # flowchart TD
-#     fetch[fetch]
-#     process[process]
-#     analyze[analyze]
+#     fetch["fetch"]
+#     process["process"]
+#     analyze["analyze"]
 #     fetch --> process
 #     process --> analyze
 
