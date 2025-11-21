@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aegeantic"
-version = "0.1.1"
+version = "0.2.0"
 description = "A comprehensive LLM agent framework with streaming support, persistent context, multi-agent orchestration, and DAG-based workflow execution"
 readme = "README.md"
 requires-python = ">=3.9"
